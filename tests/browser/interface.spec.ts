@@ -103,3 +103,55 @@ test("registration validates and reviews real evidence rules before submitting",
     fullPage: true,
   });
 });
+
+test("live public docket preserves locked sources and exposes independent jury readings", async ({
+  page,
+  request,
+}) => {
+  const id = process.env.SORTITION_DOCKET_ID;
+  test.skip(!id, "Set SORTITION_DOCKET_ID to a real registered question.");
+  const response = await request.get(`/api/questions/${id}`);
+  await expect(response).toBeOK();
+  const question = await response.json();
+  expect(question.docket.rounds.length).toBeGreaterThan(0);
+  await page.goto(`/dockets/${id}`, { waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("heading", {
+      name: question.specification.question,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "The locked source set" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(question.criteria_hash, { exact: true }),
+  ).toBeVisible();
+  for (const source of question.specification.sources) {
+    await expect(
+      page.locator(`.source-record a[href="${source.url}"]`),
+    ).toBeVisible();
+  }
+  await expect(page.locator(".evidence-value").first()).toContainText("200=ok");
+  const juror = page
+    .locator(".juror")
+    .filter({ has: page.locator(".juror-reading") })
+    .filter({ hasText: "agree" })
+    .first();
+  await juror.locator("summary").first().click();
+  await expect(juror.locator(".juror-reading").first()).toContainText("200=ok");
+  await page.screenshot({
+    path: "test-results/live-docket-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/live-docket-mobile.png",
+    fullPage: true,
+  });
+});

@@ -130,6 +130,10 @@ export function publicReceipt(receipt: unknown) {
   const leaders = c.leader_receipt || c.leaderReceipt;
   return {
     hash: r.hash || r.txId,
+    transaction_type: r.type,
+    value: r.value,
+    sender: r.from_address || r.sender,
+    recipient: r.to_address || r.recipient,
     status: statusName(r),
     execution_success: executionSucceeded(r),
     votes: c.votes,

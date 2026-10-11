@@ -1,7 +1,7 @@
 /** Real Studio contract and backend integration, never substitutes chain data. */
 import nextEnv from "@next/env";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { db } from "../lib/db";
 import {
@@ -23,7 +23,8 @@ const state: Record<string, unknown> = existsSync(statePath)
   ? JSON.parse(readFileSync(statePath, "utf8"))
   : {};
 function save() {
-  writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+  writeFileSync(statePath + ".tmp", JSON.stringify(state, null, 2) + "\n");
+  renameSync(statePath + ".tmp", statePath);
 }
 const account = chain().account!;
 const owner = {
@@ -183,7 +184,9 @@ assert.equal(escrow.challenge_count, 1);
 const credit = await readFinal(addresses().vault, "get_credit", [
   owner.beneficiary,
 ]);
-assert.ok(BigInt(credit as string) >= 12n);
+if (state.native_withdrawal_verified)
+  assert.equal(BigInt(credit as string), 0n);
+else assert.ok(BigInt(credit as string) >= 12n);
 state.verified = true;
 state.final_outcome = escrow.outcome;
 state.credit = credit;

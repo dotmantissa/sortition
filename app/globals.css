@@ -1135,6 +1135,10 @@ dd {
   gap: 48px;
   margin-top: 30px;
 }
+.docket-main,
+.docket-rail {
+  min-width: 0;
+}
 .docket-main h2 {
   font-size: 25px;
 }
@@ -1153,6 +1157,7 @@ dd {
   line-height: 1.7;
 }
 .source-record {
+  overflow-wrap: anywhere;
   border: 1px solid var(--line);
   border-left: 3px solid var(--signal);
   padding: 18px 20px;
@@ -1861,6 +1866,7 @@ dd {
     padding: 15px;
   }
   .source-record header {
+    flex-wrap: wrap;
     gap: 8px;
   }
   .source-record h3 {
@@ -1912,6 +1918,7 @@ dd {
   color: var(--muted);
 }
 .juror-reading {
+  overflow-wrap: anywhere;
   padding: 0.5rem 1rem 1rem;
   border-left: 2px solid var(--mint);
   margin: 0.5rem 0;

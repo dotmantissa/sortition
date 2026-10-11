@@ -55,8 +55,11 @@ export function JuryReceipt({ receipt }: { receipt: Record<string, unknown> }) {
                     {source.name}
                   </a>
                   <p>
-                    {source.reachable ? "Source reached" : "Source unavailable"}{" "}
-                    · <strong>{source.value || "No extracted value"}</strong>
+                    {source.reachable
+                      ? "Source reached."
+                      : "Source unavailable."}{" "}
+                    Extracted value:{" "}
+                    <strong>{source.value || "No extracted value"}</strong>
                   </p>
                   {source.excerpt ? (
                     <blockquote>{source.excerpt}</blockquote>

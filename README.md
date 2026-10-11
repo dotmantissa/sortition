@@ -57,6 +57,7 @@ npm run build
 npm run test:browser
 npm run test:live
 npx tsx scripts/verify-payout.ts
+npx tsx scripts/verify-service.ts
 ```
 
 Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, missing evidence, malformed model replies, validator comparison, escalating bonds, settlement boundaries and payouts. Test fixtures are confined to the test suite.

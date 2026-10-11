@@ -247,11 +247,16 @@ export function Docket({ initial }: { initial: Question }) {
                     <div className="round-header">
                       <h3>
                         {r.kind === "internal"
-                          ? "Factory or docket message"
+                          ? r.receipt.transaction_type === 0
+                            ? "Native payment"
+                            : "Contract message"
                           : r.kind.replaceAll("_", " ")}
                       </h3>
                       <span className="status">
-                        {String(r.receipt.status || "Recorded")}
+                        {r.receipt.status === "FINALIZED" &&
+                        r.receipt.execution_success === false
+                          ? "Execution failed"
+                          : String(r.receipt.status || "Recorded")}
                       </span>
                     </div>
                     <a
@@ -275,6 +280,15 @@ export function Docket({ initial }: { initial: Question }) {
                       <p>
                         {r.receipt.rotation_count} jury rotations recorded by
                         the network.
+                      </p>
+                    ) : null}
+                    {r.receipt.transaction_type === 0 ? (
+                      <p>
+                        Native value: {String(r.receipt.value || "0")} GEN wei.
+                        Recipient:{" "}
+                        <code>
+                          {String(r.receipt.recipient || "Not reported")}
+                        </code>
                       </p>
                     ) : null}
                     <JuryReceipt receipt={r.receipt} />
