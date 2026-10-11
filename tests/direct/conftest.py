@@ -49,6 +49,13 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
         def resolve(self): pass
         def emit_transfer(self, **kw): state['transfer'] = kw
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda addr: Docket())
+    # Keep the EVM transfer path distinct from GenVM contract calls.
+    import sys
+    class Recipient:
+        def __init__(self, addr): state['recipient'] = str(addr)
+        def emit_transfer(self, **kw): state['transfer'] = kw
+    state['recipient_interface'] = sys.modules[c.__class__.__module__].NativeRecipient
+    monkeypatch.setattr(sys.modules[c.__class__.__module__], 'NativeRecipient', Recipient)
     return c, state
 
 

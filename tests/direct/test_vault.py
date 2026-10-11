@@ -56,6 +56,7 @@ def test_defender_and_fee_payout(vault, direct_vm, direct_alice, direct_bob):
     c.withdraw(address(direct_bob))
     assert c.get_credit(address(direct_bob)) == '0'
     assert int(state['transfer']['value']) == 2
+    assert state['recipient'].lower() == address(direct_bob).lower()
     with direct_vm.expect_revert('No credit'):
         c.withdraw(address(direct_bob))
 
@@ -121,3 +122,30 @@ def test_multiple_winners_share_pool_and_dust_without_losing_value(vault,direct_
     assert c.get_credit(address(direct_charlie))=='11'
     assert c.get_credit(address(direct_alice))=='10'
     assert sum(int(c.get_credit(address(a))) for a in [direct_alice,direct_bob,direct_charlie])==24
+
+
+def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm,direct_bob,monkeypatch):
+    import sys
+    import genlayer.gl._internal.gl_call as calls
+    c,state=vault
+    funded(c,direct_vm)
+    direct_vm.value=2
+    c.challenge('q1',address(direct_bob),'NO')
+    state['round']=2
+    warp(direct_vm,'2028-01-01T00:02:00Z')
+    c.finalize('q1')
+    emitted=[]
+    class Completed:
+        def get(self): return None
+    def capture(message, decoder):
+        emitted.append(message)
+        return Completed()
+    monkeypatch.setattr(sys.modules[c.__class__.__module__],'NativeRecipient',state['recipient_interface'])
+    monkeypatch.setattr(calls,'gl_call_generic',capture)
+    c.withdraw(address(direct_bob))
+    assert len(emitted)==1
+    transfer=emitted[0]['EthSend']
+    assert str(transfer['address']).lower()==address(direct_bob).lower()
+    assert transfer['calldata']==b''
+    assert int(transfer['value'])==2
+    assert c.get_credit(address(direct_bob))=='0'

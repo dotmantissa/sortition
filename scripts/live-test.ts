@@ -56,7 +56,7 @@ if (!state.question_id) {
   const created = await registerQuestion(
     owner,
     { specification: spec, fee: "10", base_bond: "2" },
-    "studio-verification-registration-v6",
+    "studio-verification-registration-v7",
   );
   state.question_id = created.id;
   save();
@@ -189,5 +189,5 @@ state.final_outcome = escrow.outcome;
 state.credit = credit;
 save();
 console.log(
-  "Live integration passed. Factory, fee, evidence, bonded rehearing and final payout verified.",
+  "Live integration passed. Factory, fee, evidence, bonded rehearing and settlement credit verified.",
 );

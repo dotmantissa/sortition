@@ -73,8 +73,29 @@ export function executionSucceeded(receipt: unknown) {
   return (
     l.execution_result === "SUCCESS" ||
     r.txExecutionResultName === "SUCCESS" ||
-    r.tx_execution_result_name === "SUCCESS"
+    r.tx_execution_result_name === "SUCCESS" ||
+    // Studio native SEND transactions bypass GenVM and finalize after ledger credit.
+    ((r.type === 0 || r.type === "SEND") &&
+      statusName(r) === "FINALIZED" &&
+      l.execution_result !== "ERROR" &&
+      r.txExecutionResultName !== "ERROR" &&
+      r.tx_execution_result_name !== "ERROR")
   );
+}
+export function childExecutionState(
+  receipts: unknown[],
+): "pending" | "failed" | "complete" {
+  if (
+    receipts.some(
+      (receipt) =>
+        ["CANCELED", "UNDETERMINED"].includes(statusName(receipt)) ||
+        (statusName(receipt) === "FINALIZED" && !executionSucceeded(receipt)),
+    )
+  )
+    return "failed";
+  return receipts.every((receipt) => statusName(receipt) === "FINALIZED")
+    ? "complete"
+    : "pending";
 }
 export function publicReceipt(receipt: unknown) {
   const r = object(jsonSafe(receipt));

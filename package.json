@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "tsx --test tests/backend/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "deploy:contracts": "tsx scripts/deploy.ts",

@@ -2,6 +2,21 @@ import "./network";
 import { neon, neonConfig } from "@neondatabase/serverless";
 import { Agent, fetch as resilientFetch } from "undici";
 import { env } from "./env";
+export function isReadOnlyDatabaseRequest(body: unknown) {
+  try {
+    const parsed = JSON.parse(String(body));
+    const queries = Array.isArray(parsed.queries) ? parsed.queries : [parsed];
+    return (
+      queries.length > 0 &&
+      queries.every(
+        (q: { query?: unknown }) =>
+          typeof q.query === "string" && /^\s*SELECT\b/i.test(q.query),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
 // Database transport gets a longer connect timeout for Neon cold starts.
 const dispatcher = new Agent({
   connect: { timeout: 30000, family: 4 },
@@ -11,6 +26,7 @@ neonConfig.fetchFunction = (async (
   input: Parameters<typeof fetch>[0],
   init?: RequestInit,
 ) => {
+  const retryReads = isReadOnlyDatabaseRequest(init?.body);
   for (let attempt = 0; ; attempt++) {
     try {
       return (await resilientFetch(String(input), {
@@ -23,6 +39,7 @@ neonConfig.fetchFunction = (async (
     } catch (error) {
       const code = (error as { cause?: { code?: string } })?.cause?.code;
       if (
+        !retryReads ||
         attempt >= 2 ||
         (![
           "UND_ERR_CONNECT_TIMEOUT",

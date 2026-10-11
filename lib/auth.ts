@@ -35,7 +35,10 @@ export async function authenticate(req: Request) {
   if (!user.email?.address)
     throw new HttpError(403, "Sortition uses email accounts.");
   const wallet = user.linkedAccounts.find(
-    (a) => a.type === "wallet" && a.walletClientType === "privy",
+    (a) =>
+      a.type === "wallet" &&
+      a.walletClientType === "privy" &&
+      a.chainType === "ethereum",
   );
   if (!wallet || wallet.type !== "wallet")
     throw new HttpError(

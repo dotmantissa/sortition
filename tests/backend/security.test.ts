@@ -7,7 +7,13 @@ import {
   safeEqual,
   publicDestination,
 } from "../../lib/security";
-import { executionSucceeded, publicReceipt, statusName } from "../../lib/chain";
+import {
+  executionSucceeded,
+  publicReceipt,
+  statusName,
+  childExecutionState,
+} from "../../lib/chain";
+import { isReadOnlyDatabaseRequest } from "../../lib/db";
 process.env.ENCRYPTION_KEY = "ab".repeat(32);
 test("webhooks reject private, loopback, metadata and reserved networks", () => {
   for (const ip of [
@@ -130,4 +136,60 @@ test("bonded hearings use strictly increasing random panel sizes", async () => {
   assert.equal(panelSize(2), 9);
   assert.throws(() => panelSize(-1));
   assert.throws(() => panelSize(33));
+});
+
+test("emitted payments require successful final child receipts", () => {
+  const contract = (status: number, execution: string) => ({
+    status,
+    type: 2,
+    consensus_data: { leader_receipt: [{ execution_result: execution }] },
+  });
+  assert.equal(childExecutionState([contract(5, "SUCCESS")]), "pending");
+  assert.equal(childExecutionState([contract(7, "ERROR")]), "failed");
+  assert.equal(
+    childExecutionState([contract(7, "SUCCESS"), contract(5, "SUCCESS")]),
+    "pending",
+  );
+  assert.equal(childExecutionState([{ type: 0, status: 7 }]), "complete");
+  assert.equal(childExecutionState([{ type: 0, status: 6 }]), "failed");
+  assert.equal(
+    executionSucceeded({ type: 0, status: 7, txExecutionResultName: "ERROR" }),
+    false,
+  );
+  assert.equal(executionSucceeded({ type: 2, status: 7 }), false);
+});
+
+test("database retries exclude uncertain writes and mixed transactions", () => {
+  assert.equal(
+    isReadOnlyDatabaseRequest(
+      JSON.stringify({ query: "SELECT id FROM questions" }),
+    ),
+    true,
+  );
+  assert.equal(
+    isReadOnlyDatabaseRequest(
+      JSON.stringify({
+        queries: [{ query: "SELECT 1" }, { query: "select 2" }],
+      }),
+    ),
+    true,
+  );
+  for (const query of [
+    "UPDATE worker_lock SET lease_until=now()",
+    "INSERT INTO operations VALUES(1)",
+    "WITH inserted AS (DELETE FROM questions) SELECT 1",
+  ])
+    assert.equal(isReadOnlyDatabaseRequest(JSON.stringify({ query })), false);
+  assert.equal(
+    isReadOnlyDatabaseRequest(
+      JSON.stringify({
+        queries: [
+          { query: "SELECT 1" },
+          { query: "UPDATE deliveries SET attempts=attempts+1" },
+        ],
+      }),
+    ),
+    false,
+  );
+  assert.equal(isReadOnlyDatabaseRequest("invalid"), false);
 });

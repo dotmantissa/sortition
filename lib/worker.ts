@@ -8,6 +8,7 @@ import {
   object,
   statusName,
   executionSucceeded,
+  childExecutionState,
   publicReceipt,
   type Address,
 } from "./chain";
@@ -165,8 +166,10 @@ async function poll(job: Job) {
     const children = await chain().getTriggeredTransactionIds({
       hash: job.tx_hash as TransactionHash,
     });
+    const childReceipts = [];
     for (const hash of children) {
       const child = await chain().getTransaction({ hash });
+      childReceipts.push(child);
       await db()`INSERT INTO receipts(tx_hash,question_id,kind,receipt) VALUES(${hash},${job.question_id},'internal',${JSON.stringify(publicReceipt(child))}::jsonb) ON CONFLICT(tx_hash) DO UPDATE SET receipt=EXCLUDED.receipt`;
     }
     if (!executionSucceeded(r)) {
@@ -174,6 +177,17 @@ async function poll(job: Job) {
       return;
     }
     if (status === "FINALIZED") {
+      const childState = childExecutionState(childReceipts);
+      if (childState === "failed") {
+        await db()`UPDATE operations SET status='failed',error='An emitted transaction failed. Review its public receipt before retrying; the parent receipt alone does not confirm delivery.',updated_at=now() WHERE id=${job.id}`;
+        return;
+      }
+      if (
+        childState === "pending" ||
+        (job.kind === "withdraw" && !childReceipts.length)
+      )
+        return;
+
       try {
         await updateQuestion(job.question_id);
       } catch {

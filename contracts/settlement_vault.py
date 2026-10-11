@@ -4,6 +4,15 @@ import json
 from datetime import datetime
 
 
+@gl.evm.contract_interface
+class NativeRecipient:
+    class View:
+        pass
+
+    class Write:
+        pass
+
+
 class SettlementVault(gl.Contract):
     owner: Address
     treasury: Address
@@ -101,8 +110,8 @@ class SettlementVault(gl.Contract):
         if amount == 0:
             raise gl.vm.UserError('No credit to withdraw')
         self.credits[addr] = u256(0)
-        # Studio supports native transfers through its balance ledger.
-        gl.get_contract_at(addr).emit_transfer(value=amount, on='finalized')
+        # An EOA has no GenVM code. Empty EVM calldata emits a native transfer.
+        NativeRecipient(addr).emit_transfer(value=amount)
 
     @gl.public.view
     def get_credit(self, beneficiary: str) -> str:
