@@ -286,7 +286,7 @@ export function Docket({ initial }: { initial: Question }) {
                       <p>
                         Native value: {String(r.receipt.value || "0")} GEN wei.
                         Recipient:{" "}
-                        <code>
+                        <code className="breakable">
                           {String(r.receipt.recipient || "Not reported")}
                         </code>
                       </p>
