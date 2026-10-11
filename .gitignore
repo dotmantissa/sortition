@@ -9,3 +9,6 @@ __pycache__/
 *.tsbuildinfo
 playwright-report/
 test-results/
+.next-dev/
+.vercel/
+.vercel

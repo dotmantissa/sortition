@@ -12,27 +12,39 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "deploy:contracts": "tsx scripts/deploy.ts",
     "test:live": "tsx scripts/live-test.ts",
-    "worker": "tsx scripts/worker.ts"
+    "worker": "tsx scripts/worker.ts",
+    "test:browser": "playwright test",
+    "format": "prettier --write app components lib scripts/*.ts integrations tests/backend tests/browser *.ts *.mjs *.json"
   },
   "dependencies": {
+    "@farcaster/frame-sdk": "^0.0.64",
+    "@farcaster/mini-app-solana": "^0.0.20",
+    "@neondatabase/serverless": "^1.0.0",
+    "@privy-io/react-auth": "^3.0.0",
+    "@privy-io/server-auth": "^1.32.0",
+    "@solana/wallet-adapter-react": "^0.15.40",
+    "@stripe/stripe-js": "^10.0.0",
+    "genlayer-js": "^1.1.8",
+    "lucide-react": "^0.468.0",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "@privy-io/react-auth": "^3.0.0",
-    "@privy-io/server-auth": "^1.32.0",
-    "@neondatabase/serverless": "^1.0.0",
-    "genlayer-js": "^1.1.8",
-    "lucide-react": "^0.468.0",
+    "undici": "^6.29.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
+    "@playwright/test": "^1.55.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.5.0",
+    "prettier": "^3.9.10",
     "tsx": "^4.20.0",
-    "@playwright/test": "^1.55.0"
+    "typescript": "^5.9.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
   }
 }
