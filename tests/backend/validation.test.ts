@@ -52,5 +52,6 @@ test("fees cannot contain decimals, signs, unsafe large numbers or zero bonds", 
 });
 test("closing timestamp gives enough time for registration", () => {
   assert.equal(closingIsFuture(100, 100000), false);
+  assert.equal(closingIsFuture(131, 100000), false);
   assert.equal(closingIsFuture(160, 100000), true);
 });

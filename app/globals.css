@@ -1,13 +1,13 @@
 @font-face {
   font-family: "Source Sans";
-  src: url("/fonts/source-sans.ttf") format("truetype");
+  src: url("/fonts/source-sans.woff2") format("woff2");
   font-style: normal;
   font-weight: 200 900;
   font-display: swap;
 }
 @font-face {
   font-family: "IBM Plex Mono";
-  src: url("/fonts/plex-mono.ttf") format("truetype");
+  src: url("/fonts/plex-mono.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -753,6 +753,7 @@ html[data-theme="dark"] .principles svg {
   color: var(--muted);
 }
 form > label,
+.registration-fields > label,
 .advanced > label,
 .form-pair > label {
   display: block;
@@ -1882,6 +1883,12 @@ dd {
 .jury-list {
   margin: 1rem 0;
   border-top: 1px solid var(--line);
+}
+.registration-fields {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
 }
 .juror {
   border-bottom: 1px solid var(--line);

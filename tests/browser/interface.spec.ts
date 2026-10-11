@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 test("public record, email access and theme remain usable on desktop and mobile", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("heading", { name: "A question deserves a fair hearing." }),
   ).toBeVisible();
@@ -16,7 +16,7 @@ test("public record, email access and theme remain usable on desktop and mobile"
   const toggle = page.getByRole("button", { name: "Use dark mode" });
   if (await toggle.count()) await toggle.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.reload();
+  await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.screenshot({ path: "test-results/home-dark.png", fullPage: true });
   await page
@@ -31,7 +31,7 @@ test("public record, email access and theme remain usable on desktop and mobile"
   await expect(page.getByPlaceholder("your@email.com")).toBeVisible();
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("heading", { name: "A question deserves a fair hearing." }),
   ).toBeVisible();
@@ -48,7 +48,7 @@ test("public record, email access and theme remain usable on desktop and mobile"
 test("registration validates and reviews real evidence rules before submitting", async ({
   page,
 }) => {
-  await page.goto("/console");
+  await page.goto("/console", { waitUntil: "domcontentloaded" });
   await page
     .getByLabel("What’s the question?")
     .fill("Does the IANA registry identify status code 200 as OK?");
@@ -57,9 +57,16 @@ test("registration validates and reviews real evidence rules before submitting",
     .fill(
       "YES when both official sources identify HTTP status code 200 as OK. NO when both identify a different meaning.",
     );
-  await page
-    .getByLabel("When does the question close?")
-    .fill(new Date(Date.now() + 7200000).toISOString().slice(0, 16));
+  const networkResponse = await page.request.get("/api/network");
+  await expect(networkResponse).toBeOK();
+  const networkTime = await networkResponse.json();
+  const closingTime = await page.evaluate((unix: number) => {
+    const date = new Date((unix + 7200) * 1000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  }, networkTime.unix);
+  await page.getByLabel("When does the question close?").fill(closingTime);
   await page.getByLabel("Source 1 name", { exact: true }).fill("IANA registry");
   await page
     .getByLabel("Source 1 URL", { exact: true })

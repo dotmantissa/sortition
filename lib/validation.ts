@@ -62,5 +62,5 @@ export const registrationSchema = z
       });
   });
 export function closingIsFuture(timestamp: number, now = Date.now()) {
-  return timestamp > Math.floor(now / 1000) + 30;
+  return timestamp >= Math.floor(now / 1000) + 60;
 }

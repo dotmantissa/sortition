@@ -52,3 +52,26 @@ def test_appeal_window_bounds(direct_vm,direct_deploy,direct_alice):
     direct_vm.sender=direct_alice
     with direct_vm.expect_revert('appeal window'):
         direct_deploy('contracts/question_registry.py',address(direct_alice),'code',59)
+
+def test_factory_binds_the_locked_docket_with_distinct_salts(registry, spec, direct_alice, direct_bob, monkeypatch):
+    import genlayer
+    deployments,bindings=[],[]
+    def deploy(**kwargs):
+        deployments.append(kwargs)
+        return direct_bob
+    class Vault:
+        def emit(self, **kwargs):
+            assert kwargs['on']=='finalized'
+            return self
+        def bind(self,*args):bindings.append(args)
+    monkeypatch.setattr(genlayer.gl,'deploy_contract',deploy)
+    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda addr:Vault())
+    for key in ['first','second']:
+        fingerprint=registry.register(key,json.dumps(spec),address(direct_alice),10,2)
+        args=deployments[-1]['args']
+        assert json.loads(args[0])==spec
+        assert args[1]==fingerprint
+        assert args[3]==key
+        assert isinstance(deployments[-1]['code'],bytes)
+        assert bindings[-1]==(key,str(genlayer.Address(address(direct_bob))),address(direct_alice),10,2)
+    assert int(deployments[0]['salt_nonce'])!=int(deployments[1]['salt_nonce'])

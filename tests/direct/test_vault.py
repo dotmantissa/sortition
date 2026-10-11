@@ -102,3 +102,22 @@ def test_zero_fee_binding_is_funded(vault,direct_vm,direct_alice,direct_bob):
         c.bind('q2',address(direct_bob),address(direct_bob),0,1)
     with direct_vm.expect_revert('not found'):
         c.get_account('missing')
+
+def test_multiple_winners_share_pool_and_dust_without_losing_value(vault,direct_vm,direct_alice,direct_bob,direct_charlie):
+    c,state=vault
+    funded(c,direct_vm)
+    direct_vm.value=2
+    c.challenge('q1',address(direct_bob),'NO')
+    state.update(round=2,outcome='NO')
+    direct_vm.value=4
+    c.challenge('q1',address(direct_alice),'YES')
+    state.update(round=3,outcome='YES')
+    direct_vm.value=8
+    c.challenge('q1',address(direct_charlie),'NO')
+    state.update(round=4,outcome='NO')
+    warp(direct_vm,'2028-01-01T00:02:00Z')
+    c.finalize('q1')
+    assert c.get_credit(address(direct_bob))=='3'
+    assert c.get_credit(address(direct_charlie))=='11'
+    assert c.get_credit(address(direct_alice))=='10'
+    assert sum(int(c.get_credit(address(a))) for a in [direct_alice,direct_bob,direct_charlie])==24

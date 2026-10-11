@@ -56,11 +56,12 @@ npm run typecheck
 npm run build
 npm run test:browser
 npm run test:live
+npx tsx scripts/verify-payout.ts
 ```
 
 Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, missing evidence, malformed model replies, validator comparison, escalating bonds, settlement boundaries and payouts. Test fixtures are confined to the test suite.
 
-The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks the larger panel and finalizes settlement. It keeps resumable public progress in `deployments/live-test.json`.
+The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks the larger panel and finalizes settlement. The payout verification then checks actual native value delivery and zero remaining credit. It keeps resumable public progress in `deployments/live-test.json`.
 
 ## Connect a venue
 

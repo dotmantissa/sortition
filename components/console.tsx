@@ -21,6 +21,7 @@ import { Status } from "./status";
 import type { Question, Source, Specification } from "@/lib/types";
 import { registrationSchema } from "@/lib/validation";
 export function OperatorConsole() {
+  const [interactive, setInteractive] = useState(false);
   const { authenticated, ready, login, getAccessToken } = usePrivy();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [error, setError] = useState("");
@@ -54,6 +55,7 @@ export function OperatorConsole() {
     offset_seconds: number;
   } | null>(null);
   useEffect(() => {
+    setInteractive(true);
     fetch("/api/network")
       .then((r) => (r.ok ? r.json() : null))
       .then(setClock)
@@ -338,248 +340,250 @@ export function OperatorConsole() {
                 if (validate()) setReview(true);
               }}
             >
-              <details className="import-market">
-                <summary>
-                  <ExternalLink size={15} /> Start from a Polymarket question{" "}
-                  <ChevronDown size={15} />
-                </summary>
-                <p>
-                  Bring in a real market. You’ll still choose and lock the
-                  evidence rules.
-                </p>
-                <div className="inline-input">
-                  <input
-                    aria-label="Polymarket market slug"
-                    placeholder="Paste a market URL or slug"
-                    value={importSlug}
-                    onChange={(e) => setImportSlug(e.target.value)}
-                  />
-                  <button
-                    className="button secondary"
-                    type="button"
-                    disabled={!importSlug || importBusy}
-                    onClick={importMarket}
-                  >
-                    {importBusy ? "Finding…" : "Import"}
-                  </button>
-                </div>
-                {importNotice ? (
-                  <p className="success-note" role="status">
-                    {importNotice}
+              <fieldset className="registration-fields" disabled={!interactive}>
+                <details className="import-market">
+                  <summary>
+                    <ExternalLink size={15} /> Start from a Polymarket question{" "}
+                    <ChevronDown size={15} />
+                  </summary>
+                  <p>
+                    Bring in a real market. You’ll still choose and lock the
+                    evidence rules.
                   </p>
-                ) : null}
-              </details>
-              <label>
-                What’s the question?
-                <textarea
-                  required
-                  minLength={10}
-                  maxLength={1000}
-                  rows={2}
-                  value={draft.question}
-                  onChange={(e) => update("question", e.target.value)}
-                  placeholder="Write a question with a clear yes or no answer."
-                />
-              </label>
-              <label>
-                What counts as yes? What counts as no?
-                <textarea
-                  required
-                  minLength={10}
-                  maxLength={10000}
-                  rows={4}
-                  value={draft.criteria}
-                  onChange={(e) => update("criteria", e.target.value)}
-                  placeholder="Be specific about dates, thresholds, and a final result. Name the factual value to extract, with a consistent format such as winner=france."
-                />
-                <span className="field-help">
-                  If a reasonable person could read it two ways, give them one
-                  more sentence.
-                </span>
-              </label>
-              <label>
-                When does the question close?
-                <input
-                  type="datetime-local"
-                  required
-                  value={draft.close}
-                  onChange={(e) => update("close", e.target.value)}
-                />
-                <span className="field-help">
-                  Your local time. Resolution starts after this moment.
-                  {clock
-                    ? ` Network time is ${new Date(clock.unix * 1000).toLocaleString()}.`
-                    : " Checking the network clock…"}
-                </span>
-              </label>
-              <fieldset className="sources-fieldset">
-                <legend>The evidence everyone agrees to use</legend>
-                <p className="field-help">
-                  Two to five named sources. They all get read independently.
-                </p>
-                {sources.map((s, i) => (
-                  <div className="source-input" key={i}>
-                    <div className="source-lock">
-                      <LockKeyhole size={16} />
-                    </div>
-                    <div className="source-fields">
-                      <input
-                        aria-label={`Source ${i + 1} name`}
-                        required
-                        placeholder="Source name"
-                        value={s.name}
-                        maxLength={120}
-                        onChange={(e) => {
-                          setSources((a) =>
-                            a.map((x, j) =>
-                              j === i ? { ...x, name: e.target.value } : x,
-                            ),
-                          );
-                          setReview(false);
-                        }}
-                      />
-                      <input
-                        aria-label={`Source ${i + 1} URL`}
-                        type="url"
-                        required
-                        placeholder="https://"
-                        value={s.url}
-                        onChange={(e) => {
-                          setSources((a) =>
-                            a.map((x, j) =>
-                              j === i ? { ...x, url: e.target.value } : x,
-                            ),
-                          );
-                          setReview(false);
-                        }}
-                      />
-                    </div>
-                    {sources.length > 2 ? (
-                      <button
-                        className="icon-button"
-                        type="button"
-                        aria-label={`Remove source ${i + 1}`}
-                        onClick={() => {
-                          setSources((a) => a.filter((_, j) => j !== i));
-                          update("tie", 0);
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    ) : null}
+                  <div className="inline-input">
+                    <input
+                      aria-label="Polymarket market slug"
+                      placeholder="Paste a market URL or slug"
+                      value={importSlug}
+                      onChange={(e) => setImportSlug(e.target.value)}
+                    />
+                    <button
+                      className="button secondary"
+                      type="button"
+                      disabled={!importSlug || importBusy}
+                      onClick={importMarket}
+                    >
+                      {importBusy ? "Finding…" : "Import"}
+                    </button>
                   </div>
-                ))}
-                <button
-                  className="add-source"
-                  type="button"
-                  disabled={sources.length >= 5}
-                  onClick={() =>
-                    setSources((s) => [...s, { name: "", url: "" }])
-                  }
-                >
-                  <Plus size={16} />
-                  Add another source
-                </button>
-              </fieldset>
-              <div className="form-pair">
+                  {importNotice ? (
+                    <p className="success-note" role="status">
+                      {importNotice}
+                    </p>
+                  ) : null}
+                </details>
                 <label>
-                  When sources disagree
-                  <select
-                    value={draft.disagreement_rule}
-                    onChange={(e) =>
-                      update("disagreement_rule", e.target.value)
+                  What’s the question?
+                  <textarea
+                    required
+                    minLength={10}
+                    maxLength={1000}
+                    rows={2}
+                    value={draft.question}
+                    onChange={(e) => update("question", e.target.value)}
+                    placeholder="Write a question with a clear yes or no answer."
+                  />
+                </label>
+                <label>
+                  What counts as yes? What counts as no?
+                  <textarea
+                    required
+                    minLength={10}
+                    maxLength={10000}
+                    rows={4}
+                    value={draft.criteria}
+                    onChange={(e) => update("criteria", e.target.value)}
+                    placeholder="Be specific about dates, thresholds, and a final result. Name the factual value to extract, with a consistent format such as winner=france."
+                  />
+                  <span className="field-help">
+                    If a reasonable person could read it two ways, give them one
+                    more sentence.
+                  </span>
+                </label>
+                <label>
+                  When does the question close?
+                  <input
+                    type="datetime-local"
+                    required
+                    value={draft.close}
+                    onChange={(e) => update("close", e.target.value)}
+                  />
+                  <span className="field-help">
+                    Your local time. Resolution starts after this moment.
+                    {clock
+                      ? ` Network time is ${new Date(clock.unix * 1000).toLocaleString()}.`
+                      : " Checking the network clock…"}
+                  </span>
+                </label>
+                <fieldset className="sources-fieldset">
+                  <legend>The evidence everyone agrees to use</legend>
+                  <p className="field-help">
+                    Two to five named sources. They all get read independently.
+                  </p>
+                  {sources.map((s, i) => (
+                    <div className="source-input" key={i}>
+                      <div className="source-lock">
+                        <LockKeyhole size={16} />
+                      </div>
+                      <div className="source-fields">
+                        <input
+                          aria-label={`Source ${i + 1} name`}
+                          required
+                          placeholder="Source name"
+                          value={s.name}
+                          maxLength={120}
+                          onChange={(e) => {
+                            setSources((a) =>
+                              a.map((x, j) =>
+                                j === i ? { ...x, name: e.target.value } : x,
+                              ),
+                            );
+                            setReview(false);
+                          }}
+                        />
+                        <input
+                          aria-label={`Source ${i + 1} URL`}
+                          type="url"
+                          required
+                          placeholder="https://"
+                          value={s.url}
+                          onChange={(e) => {
+                            setSources((a) =>
+                              a.map((x, j) =>
+                                j === i ? { ...x, url: e.target.value } : x,
+                              ),
+                            );
+                            setReview(false);
+                          }}
+                        />
+                      </div>
+                      {sources.length > 2 ? (
+                        <button
+                          className="icon-button"
+                          type="button"
+                          aria-label={`Remove source ${i + 1}`}
+                          onClick={() => {
+                            setSources((a) => a.filter((_, j) => j !== i));
+                            update("tie", 0);
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <button
+                    className="add-source"
+                    type="button"
+                    disabled={sources.length >= 5}
+                    onClick={() =>
+                      setSources((s) => [...s, { name: "", url: "" }])
                     }
                   >
-                    <option value="unanimous">Every source must agree</option>
-                    <option value="majority">A majority must agree</option>
-                    <option value="tie_break">Use the tie source</option>
-                  </select>
-                </label>
-                <label>
-                  The named tie source
-                  <select
-                    value={draft.tie}
-                    onChange={(e) => update("tie", Number(e.target.value))}
-                  >
-                    {sources.map((s, i) => (
-                      <option key={i} value={i}>
-                        {s.name || `Source ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <label>
-                When should we say “unresolvable”?
-                <textarea
-                  required
-                  minLength={10}
-                  rows={3}
-                  maxLength={10000}
-                  value={draft.unresolvable_definition}
-                  onChange={(e) =>
-                    update("unresolvable_definition", e.target.value)
-                  }
-                  placeholder="Missing results? A cancelled event? Conflicting official reports? Name the uncertainty you won’t pretend away."
-                />
-              </label>
-              <details className="advanced">
-                <summary>
-                  Fee, appeal bond, and webhook <ChevronDown size={16} />
-                </summary>
-                <p className="field-help">
-                  Studio uses test GEN. Fees and bonds are paid by the server
-                  relay. A funded relay is required for amounts above zero.
-                </p>
+                    <Plus size={16} />
+                    Add another source
+                  </button>
+                </fieldset>
                 <div className="form-pair">
                   <label>
-                    Resolution fee in GEN wei
-                    <input
-                      inputMode="numeric"
-                      pattern="[0-9]+"
-                      value={draft.fee}
-                      onChange={(e) => update("fee", e.target.value)}
-                    />
+                    When sources disagree
+                    <select
+                      value={draft.disagreement_rule}
+                      onChange={(e) =>
+                        update("disagreement_rule", e.target.value)
+                      }
+                    >
+                      <option value="unanimous">Every source must agree</option>
+                      <option value="majority">A majority must agree</option>
+                      <option value="tie_break">Use the tie source</option>
+                    </select>
                   </label>
                   <label>
-                    First appeal bond in GEN wei
-                    <input
-                      inputMode="numeric"
-                      pattern="[1-9][0-9]*"
-                      value={draft.base_bond}
-                      onChange={(e) => update("base_bond", e.target.value)}
-                    />
+                    The named tie source
+                    <select
+                      value={draft.tie}
+                      onChange={(e) => update("tie", Number(e.target.value))}
+                    >
+                      {sources.map((s, i) => (
+                        <option key={i} value={i}>
+                          {s.name || `Source ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 <label>
-                  Webhook URL, optional
-                  <input
-                    type="url"
-                    placeholder="https://your.market/settlement"
-                    value={draft.webhook_url}
-                    onChange={(e) => update("webhook_url", e.target.value)}
+                  When should we say “unresolvable”?
+                  <textarea
+                    required
+                    minLength={10}
+                    rows={3}
+                    maxLength={10000}
+                    value={draft.unresolvable_definition}
+                    onChange={(e) =>
+                      update("unresolvable_definition", e.target.value)
+                    }
+                    placeholder="Missing results? A cancelled event? Conflicting official reports? Name the uncertainty you won’t pretend away."
                   />
                 </label>
-                <label>
-                  Webhook signing secret
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={draft.webhook_secret}
-                    onChange={(e) => update("webhook_secret", e.target.value)}
-                    placeholder="At least 24 characters"
-                  />
-                </label>
-              </details>
-              <div className="form-actions">
-                <p>
-                  <LockKeyhole size={14} />
-                  Review before anything is locked.
-                </p>
-                <button className="button primary" type="submit">
-                  Review question <Check size={16} />
-                </button>
-              </div>
+                <details className="advanced">
+                  <summary>
+                    Fee, appeal bond, and webhook <ChevronDown size={16} />
+                  </summary>
+                  <p className="field-help">
+                    Studio uses test GEN. Fees and bonds are paid by the server
+                    relay. A funded relay is required for amounts above zero.
+                  </p>
+                  <div className="form-pair">
+                    <label>
+                      Resolution fee in GEN wei
+                      <input
+                        inputMode="numeric"
+                        pattern="[0-9]+"
+                        value={draft.fee}
+                        onChange={(e) => update("fee", e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      First appeal bond in GEN wei
+                      <input
+                        inputMode="numeric"
+                        pattern="[1-9][0-9]*"
+                        value={draft.base_bond}
+                        onChange={(e) => update("base_bond", e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Webhook URL, optional
+                    <input
+                      type="url"
+                      placeholder="https://your.market/settlement"
+                      value={draft.webhook_url}
+                      onChange={(e) => update("webhook_url", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Webhook signing secret
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={draft.webhook_secret}
+                      onChange={(e) => update("webhook_secret", e.target.value)}
+                      placeholder="At least 24 characters"
+                    />
+                  </label>
+                </details>
+                <div className="form-actions">
+                  <p>
+                    <LockKeyhole size={14} />
+                    Review before anything is locked.
+                  </p>
+                  <button className="button primary" type="submit">
+                    Review question <Check size={16} />
+                  </button>
+                </div>
+              </fieldset>
             </form>
           )}
         </div>
