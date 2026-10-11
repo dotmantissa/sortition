@@ -36,3 +36,5 @@ CREATE TABLE IF NOT EXISTS worker_lock (
 );
 CREATE INDEX IF NOT EXISTS questions_created ON questions(created_at DESC);
 CREATE INDEX IF NOT EXISTS operations_status ON operations(status,created_at);
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS registry_address text;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS vault_address text;

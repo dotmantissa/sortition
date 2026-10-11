@@ -11,12 +11,27 @@ export async function importPolymarket(slug: string) {
   const markets = await response.json();
   const market = markets[0];
   if (!market) throw Error("Market not found");
-  return market as {
+  const outcomes: unknown =
+    typeof market.outcomes === "string"
+      ? JSON.parse(market.outcomes)
+      : market.outcomes;
+  if (
+    !Array.isArray(outcomes) ||
+    outcomes.length !== 2 ||
+    outcomes.some((value) => typeof value !== "string")
+  )
+    throw Error("Only binary venue questions are supported");
+  return {
+    ...market,
+    outcomes: outcomes as string[],
+    description: `${market.description || ""}\n\nSortition outcome mapping: YES means ${JSON.stringify(outcomes[0])}. NO means ${JSON.stringify(outcomes[1])}. A split payout or unresolved event is UNRESOLVABLE. Extract a canonical value in the form result=<winning outcome in lowercase> for a final result, or result=unknown otherwise.`,
+  } as {
     id: string;
     question: string;
     description: string;
     endDate: string;
     resolutionSource: string;
+    outcomes: string[];
   };
 }
 export async function registerPolymarketQuestion({

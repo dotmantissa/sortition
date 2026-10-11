@@ -30,7 +30,10 @@ export type Round = {
   sources: Evidence[];
 };
 export type Question = {
+  registry_address?: string;
+  vault_address?: string;
   can_operate?: boolean;
+  credit?: string;
   id: string;
   specification: Specification;
   criteria_hash: string | null;

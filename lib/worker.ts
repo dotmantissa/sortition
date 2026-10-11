@@ -4,7 +4,6 @@ import {
   chain,
   panelSize,
   networkClock,
-  addresses,
   readFinal,
   object,
   statusName,
@@ -28,10 +27,17 @@ type Job = {
   fee: string;
   base_bond: string;
   docket_address: string | null;
+  registry_address: Address;
+  vault_address: Address;
 };
 async function updateQuestion(id: string) {
-  const sql = db(),
-    a = addresses();
+  const sql = db();
+  const configured =
+    await sql`SELECT registry_address,vault_address FROM questions WHERE id=${id}`;
+  const a = {
+    registry: configured[0].registry_address as Address,
+    vault: configured[0].vault_address as Address,
+  };
   const registered = object(await readFinal(a.registry, "get_question", [id]));
   const docketAddress = registered.docket_address as Address;
   if (!docketAddress) return;
@@ -56,7 +62,7 @@ async function updateQuestion(id: string) {
 }
 async function submit(job: Job) {
   const client = chain(),
-    a = addresses();
+    a = { registry: job.registry_address, vault: job.vault_address };
   let hash: string;
   if (job.kind === "register") {
     hash = await client.writeContract({
@@ -98,9 +104,16 @@ async function submit(job: Job) {
       throw Error(
         "The docket is still being created. Please try again shortly.",
       );
-    const escrow = object(
-      await readFinal(a.vault, "get_account", [job.question_id]),
-    );
+    let escrow: Record<string, unknown>;
+    try {
+      escrow = object(
+        await readFinal(a.vault, "get_account", [job.question_id]),
+      );
+    } catch {
+      throw Error(
+        "Preparation failed before any transaction was sent. Please try again.",
+      );
+    }
     let address = a.vault;
     let fn = job.kind;
     let args: (string | number | bigint)[] = [job.question_id];
@@ -143,6 +156,9 @@ async function poll(job: Job) {
     hash: job.tx_hash as TransactionHash,
   });
   const status = statusName(r);
+  if (["FINALIZED", "UNDETERMINED", "CANCELED"].includes(status)) {
+    await db()`INSERT INTO receipts(tx_hash,question_id,kind,receipt) VALUES(${job.tx_hash},${job.question_id},${job.kind},${JSON.stringify(publicReceipt(r))}::jsonb) ON CONFLICT(tx_hash) DO UPDATE SET receipt=EXCLUDED.receipt`;
+  }
   if (["ACCEPTED", "FINALIZED"].includes(status)) {
     const publicData = publicReceipt(r);
     await db()`INSERT INTO receipts(tx_hash,question_id,kind,receipt) VALUES(${job.tx_hash},${job.question_id},${job.kind},${JSON.stringify(publicData)}::jsonb) ON CONFLICT(tx_hash) DO UPDATE SET receipt=EXCLUDED.receipt`;
@@ -207,11 +223,17 @@ export async function workerTick() {
   const lease =
     await sql`INSERT INTO worker_lock(id,lease_until,token) VALUES(1,now()+interval '90 seconds',${token}) ON CONFLICT(id) DO UPDATE SET lease_until=EXCLUDED.lease_until,token=EXCLUDED.token WHERE worker_lock.lease_until<now() RETURNING token`;
   if (!lease.length) return { busy: true };
+  const heartbeat = setInterval(() => {
+    sql`UPDATE worker_lock SET lease_until=now()+interval '90 seconds' WHERE id=1 AND token=${token}`.catch(
+      () => {},
+    );
+  }, 30000);
+  heartbeat.unref();
   try {
     // A crash after submit but before persisting the hash requires manual reconciliation. Never blindly resend money.
     await sql`UPDATE operations SET status='needs_review',error='Submission was interrupted. The operator must reconcile the relay nonce and network history before resubmitting.',updated_at=now() WHERE status='submitting' AND updated_at<now()-interval '10 minutes'`;
     const rows =
-      await sql`SELECT o.*,q.specification,q.beneficiary,q.fee::text,q.base_bond::text,q.docket_address FROM operations o JOIN questions q ON q.id=o.question_id WHERE o.status IN ('queued','submitted') ORDER BY CASE WHEN o.kind='protocol_appeal' AND o.status='queued' THEN 0 ELSE 1 END,o.created_at LIMIT 1`;
+      await sql`SELECT o.*,q.specification,q.beneficiary,q.fee::text,q.base_bond::text,q.docket_address,q.registry_address,q.vault_address FROM operations o JOIN questions q ON q.id=o.question_id WHERE o.status IN ('queued','submitted') ORDER BY CASE WHEN o.kind='protocol_appeal' AND o.status='queued' THEN 0 ELSE 1 END,o.created_at LIMIT 1`;
     if (rows[0]) {
       const job = rows[0] as Job;
       if (job.status === "queued") {
@@ -224,7 +246,8 @@ export async function workerTick() {
             message.startsWith("The relay") ||
             message.startsWith("The protocol") ||
             message.startsWith("No resolution") ||
-            message.startsWith("The docket")
+            message.startsWith("The docket") ||
+            message.startsWith("Preparation failed")
               ? message
               : "Submission could not be confirmed. Check the network history before retrying.";
           await sql`UPDATE operations SET status=${safe === message ? "failed" : "needs_review"},error=${safe},updated_at=now() WHERE id=${job.id}`;
@@ -238,6 +261,7 @@ export async function workerTick() {
     await delivery();
     return { processed: rows[0]?.id || null };
   } finally {
+    clearInterval(heartbeat);
     await sql`DELETE FROM worker_lock WHERE id=1 AND token=${token}`;
   }
 }

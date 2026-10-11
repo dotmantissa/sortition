@@ -70,6 +70,15 @@ test("public receipts keep votes and evidence while excluding node credentials",
   const r = publicReceipt({
     hash: "0xabc",
     status: 7,
+    consensus_history: {
+      rounds: [
+        {
+          node_config: { api_key: "secret" },
+          api_token: "secret",
+          votes: { "0x1": "agree" },
+        },
+      ],
+    },
     consensus_data: {
       votes: { "0x1": "agree" },
       validators: [
@@ -77,6 +86,14 @@ test("public receipts keep votes and evidence while excluding node credentials",
           vote: "agree",
           node_config: { address: "0x1", plugin_config: { api_key: "secret" } },
           eq_outputs: { source: "reading" },
+          genvm_result: {
+            stdout: JSON.stringify({
+              sortition_evidence: {
+                outcome: "YES",
+                sources: [{ value: "200=ok" }],
+              },
+            }),
+          },
         },
       ],
       leader_receipt: [
@@ -87,6 +104,9 @@ test("public receipts keep votes and evidence while excluding node credentials",
   assert.equal(r.execution_success, true);
   assert.equal(JSON.stringify(r).includes("secret"), false);
   assert.equal(r.validators[0].address, "0x1");
+  assert.deepEqual(r.validators[0].source_reads, [
+    { outcome: "YES", sources: [{ value: "200=ok" }] },
+  ]);
 });
 
 test("quorum cancellation on a late validator does not override the leader execution", () => {
@@ -103,4 +123,11 @@ test("quorum cancellation on a late validator does not override the leader execu
   );
 });
 
-test('bonded hearings use strictly increasing random panel sizes',async()=>{const {panelSize}=await import('../../lib/chain');assert.equal(panelSize(0),5);assert.equal(panelSize(1),7);assert.equal(panelSize(2),9);assert.throws(()=>panelSize(-1));assert.throws(()=>panelSize(33));});
+test("bonded hearings use strictly increasing random panel sizes", async () => {
+  const { panelSize } = await import("../../lib/chain");
+  assert.equal(panelSize(0), 5);
+  assert.equal(panelSize(1), 7);
+  assert.equal(panelSize(2), 9);
+  assert.throws(() => panelSize(-1));
+  assert.throws(() => panelSize(33));
+});

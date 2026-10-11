@@ -1,6 +1,7 @@
 import { authenticate, fail } from "@/lib/auth";
 import { getQuestion, getOperations } from "@/lib/queries";
 import { db } from "@/lib/db";
+import { readFinal, type Address } from "@/lib/chain";
 export const dynamic = "force-dynamic";
 export async function GET(
   req: Request,
@@ -15,6 +16,12 @@ export async function GET(
       const owner = await authenticate(req);
       const rows = await db()`SELECT owner_id FROM questions WHERE id=${id}`;
       question.can_operate = rows[0]?.owner_id === owner.id;
+      if (question.escrow?.settled)
+        question.credit = String(
+          await readFinal(question.vault_address as Address, "get_credit", [
+            owner.beneficiary,
+          ]),
+        );
       question.operations = (await getOperations(
         id,
         owner.id,

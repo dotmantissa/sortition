@@ -1,4 +1,4 @@
-import { networkClock } from "./chain";
+import { networkClock, addresses } from "./chain";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
 import { HttpError } from "./auth";
@@ -18,6 +18,11 @@ export async function registerQuestion(
   body: unknown,
   key: string,
 ) {
+  const sql = db();
+  const existing =
+    await sql`SELECT question_id,id FROM operations WHERE owner_id=${owner.id} AND idempotency_key=${key}`;
+  if (existing[0])
+    return { id: existing[0].question_id, operation_id: existing[0].id };
   const parsed = registrationSchema.parse(body);
   if (
     !closingIsFuture(
@@ -30,19 +35,22 @@ export async function registerQuestion(
       "Choose a closing time at least a minute after the network time.",
     );
   await rateLimit(owner.id);
-  await Promise.all(
-    parsed.specification.sources.map((s) => publicDestination(s.url)),
-  );
-  if (parsed.webhook) await publicDestination(parsed.webhook.url);
-  const sql = db();
-  const existing =
-    await sql`SELECT question_id,id FROM operations WHERE owner_id=${owner.id} AND idempotency_key=${key}`;
-  if (existing[0])
-    return { id: existing[0].question_id, operation_id: existing[0].id };
+  try {
+    await Promise.all(
+      parsed.specification.sources.map((s) => publicDestination(s.url)),
+    );
+    if (parsed.webhook) await publicDestination(parsed.webhook.url);
+  } catch {
+    throw new HttpError(
+      400,
+      "A source or webhook address could not be verified as a public HTTPS server.",
+    );
+  }
   const id = randomUUID(),
     op = randomUUID();
+  const contracts = addresses();
   await sql.transaction([
-    sql`INSERT INTO questions(id,owner_id,specification,beneficiary,fee,base_bond) VALUES(${id},${owner.id},${JSON.stringify(parsed.specification)}::jsonb,${owner.beneficiary},${parsed.fee},${parsed.base_bond})`,
+    sql`INSERT INTO questions(id,owner_id,specification,beneficiary,fee,base_bond,registry_address,vault_address) VALUES(${id},${owner.id},${JSON.stringify(parsed.specification)}::jsonb,${owner.beneficiary},${parsed.fee},${parsed.base_bond},${contracts.registry},${contracts.vault})`,
     sql`INSERT INTO operations(id,question_id,owner_id,kind,idempotency_key) VALUES(${op},${id},${owner.id},'register',${key})`,
     ...(parsed.webhook
       ? [
@@ -75,6 +83,7 @@ export async function queueAction(
   if (!rows[0]) throw new HttpError(404, "This question was not found.");
   if (
     action !== "challenge" &&
+    action !== "withdraw" &&
     action !== "protocol_appeal" &&
     rows[0].owner_id !== owner.id
   )
@@ -86,8 +95,15 @@ export async function queueAction(
     throw new HttpError(400, "Choose the outcome you are arguing for.");
   await rateLimit(owner.id);
   const duplicate =
-    await sql`SELECT id,tx_hash,status FROM operations WHERE owner_id=${owner.id} AND idempotency_key=${key}`;
-  if (duplicate[0]) return duplicate[0];
+    await sql`SELECT id,tx_hash,status,question_id,kind FROM operations WHERE owner_id=${owner.id} AND idempotency_key=${key}`;
+  if (duplicate[0]) {
+    if (duplicate[0].question_id !== id || duplicate[0].kind !== action)
+      throw new HttpError(
+        409,
+        "This idempotency key belongs to a different action.",
+      );
+    return duplicate[0];
+  }
   const op = randomUUID();
   try {
     await sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${op},${id},${owner.id},${action},${JSON.stringify({ expected, claimant: owner.beneficiary })}::jsonb,${key})`;

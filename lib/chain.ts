@@ -1,4 +1,5 @@
 import "./network";
+import "./rpc-transport";
 import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionHashVariant } from "genlayer-js/types";
@@ -82,6 +83,16 @@ export function publicReceipt(receipt: unknown) {
     const v = object(raw),
       n = object(v.node_config),
       g = object(v.genvm_result);
+    const evidence = String(g.stdout || "")
+      .split("\n")
+      .flatMap((line) => {
+        try {
+          const parsed = object(JSON.parse(line));
+          return parsed.sortition_evidence ? [parsed.sortition_evidence] : [];
+        } catch {
+          return [];
+        }
+      });
     return {
       address: n.address,
       mode: v.mode,
@@ -90,7 +101,7 @@ export function publicReceipt(receipt: unknown) {
       result: v.result,
       eq_outputs: v.eq_outputs,
       nondet_disagree: v.nondet_disagree,
-      source_reads: v.eq_outputs,
+      source_reads: evidence.length ? evidence : v.eq_outputs,
       stdout: g.stdout,
       stderr: g.stderr,
     };
@@ -107,10 +118,24 @@ export function publicReceipt(receipt: unknown) {
       : leaders
         ? [mapReceipt(leaders)]
         : [],
-    history: r.consensus_history,
+    history: redactReceiptHistory(r.consensus_history),
     rotation_count: r.rotation_count,
     triggered_transactions: r.triggered_transactions,
   };
+}
+function redactReceiptHistory(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactReceiptHistory);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(
+        ([key]) =>
+          !/secret|token|password|credential|private|api.?key|node_config|plugin_config/i.test(
+            key,
+          ),
+      )
+      .map(([key, v]) => [key, redactReceiptHistory(v)]),
+  );
 }
 export async function readFinal(
   address: Address,
@@ -136,7 +161,9 @@ export async function networkClock() {
       unix: cachedClock.unix + Math.floor((local - cachedClock.local) / 1000),
       offset_seconds: cachedClock.unix - Math.floor(cachedClock.local / 1000),
     };
-  const deployment = object((await import("../deployments/studionet.json")).default);
+  const deployment = object(
+    (await import("../deployments/studionet.json")).default,
+  );
   const receipt = object(
     await chain().getTransaction({
       hash: deployment.configure_tx as import("genlayer-js/types").TransactionHash,
