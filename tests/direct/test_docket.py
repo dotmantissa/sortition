@@ -29,6 +29,19 @@ def test_ambiguous_evidence(docket, direct_vm):
     docket.resolve()
     assert docket.get_settlement()['outcome'] == 'UNRESOLVABLE'
 
+def test_numbered_evidence_uses_actual_source_line(docket, direct_vm):
+    direct_vm.mock_web('.*', {'status': 200, 'body': 'Report\nThe final rate is 6 percent.\nFootnote'})
+    direct_vm.mock_llm('.*', json.dumps({'position': 'YES', 'value': '6 percent', 'evidence_line': 2}))
+    docket.resolve()
+    assert all(s['excerpt'] == 'The final rate is 6 percent.' for s in docket.get_docket()['rounds'][0]['sources'])
+
+@pytest.mark.parametrize('line', [0, -1, 20, '1', True])
+def test_invalid_evidence_line_reverts(docket, direct_vm, line):
+    direct_vm.mock_web('.*', {'status': 200, 'body': 'The final rate is 6 percent.'})
+    direct_vm.mock_llm('.*', json.dumps({'position': 'YES', 'value': '6 percent', 'evidence_line': line}))
+    with direct_vm.expect_revert('LLM_ERROR'):
+        docket.resolve()
+
 @pytest.mark.parametrize('reply', [{'position': 'MAYBE', 'value': '6'}, {'position': 'YES', 'value': '6', 'excerpt': 'fabricated quote'}, 'not json'])
 def test_bad_model_response_reverts(docket, direct_vm, reply):
     direct_vm.mock_web('.*', {'status': 200, 'body': 'Actual source.'})
