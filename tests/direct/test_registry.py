@@ -1,0 +1,39 @@
+from conftest import address, warp
+import json
+import hashlib
+import pytest
+
+def test_locked_hash_and_listing(registry, spec, direct_alice):
+    h = registry.register('q1', json.dumps(spec), address(direct_alice), 0, 1)
+    assert h == hashlib.sha256(json.dumps(spec, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    assert registry.get_question('q1')['specification'] == spec
+    assert registry.list_questions(0, 10)['total'] == 1
+    assert registry.list_questions(1, 10)['questions'] == []
+
+def test_duplicate(registry, spec, direct_alice, direct_vm):
+    registry.register('q1', json.dumps(spec), address(direct_alice), 0, 1)
+    with direct_vm.expect_revert('duplicate'):
+        registry.register('q1', json.dumps(spec), address(direct_alice), 0, 1)
+
+@pytest.mark.parametrize('change,message', [({'sources': []}, 'two to five'), ({'tie_break_url': 'https://other.example'}, 'Tie break'), ({'disagreement_rule': 'whatever'}, 'Unknown'), ({'question': ''}, 'required'), ({'close_timestamp': 0}, 'future')])
+def test_invalid_spec(registry, spec, direct_alice, direct_vm, change, message):
+    spec.update(change)
+    with direct_vm.expect_revert(message):
+        registry.register('q1', json.dumps(spec), address(direct_alice), 0, 1)
+
+def test_source_validation(registry, spec, direct_alice, direct_vm):
+    spec['sources'][1]['url'] = spec['sources'][0]['url']
+    with direct_vm.expect_revert('unique'):
+        registry.register('q1', json.dumps(spec), address(direct_alice), 0, 1)
+    spec['sources'][1]['url'] = 'http://unsafe.example'
+    with direct_vm.expect_revert('HTTPS'):
+        registry.register('q1', json.dumps(spec), address(direct_alice), 0, 1)
+
+def test_access_and_pagination(registry, spec, direct_bob, direct_vm):
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert('Only'):
+        registry.register('q1', json.dumps(spec), address(direct_bob), 0, 1)
+    with direct_vm.expect_revert('pagination'):
+        registry.list_questions(-1, 10)
+    with direct_vm.expect_revert('not found'):
+        registry.get_question('absent')
