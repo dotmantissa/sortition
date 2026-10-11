@@ -61,6 +61,29 @@ export function statusName(receipt: unknown) {
       )[s] || "PENDING"
     : String(s);
 }
+export function supplementStudioReceipt(decoded: unknown, raw: unknown) {
+  const r = object(raw);
+  return {
+    ...object(decoded),
+    typeHex: r.type ?? object(decoded).typeHex,
+    value_credited: r.value_credited ?? object(decoded).value_credited,
+  };
+}
+export async function readTransaction(hash: `0x${string}`) {
+  const client = chain();
+  const decoded = await client.getTransaction({
+    hash: hash as import("genlayer-js/types").TransactionHash,
+  });
+  if (client.chain.isStudio && transactionType(decoded) === undefined) {
+    // viem drops Studio's numeric zero type. Request its raw field for ledger proof.
+    const raw = await client.request({
+      method: "eth_getTransactionByHash",
+      params: [hash],
+    });
+    return supplementStudioReceipt(decoded, raw);
+  }
+  return decoded;
+}
 export function transactionType(receipt: unknown) {
   const r = object(receipt),
     raw = r.typeHex ?? r.type;

@@ -9,6 +9,7 @@ import {
   object,
   publicReceipt,
   executionSucceeded,
+  readTransaction,
   statusName,
 } from "../lib/chain";
 import { queueAction } from "../lib/service";
@@ -111,7 +112,7 @@ for (let attempt = 0; attempt < 120; attempt++) {
     assert.ok(children.length > 0, "Withdrawal must emit a native payment.");
     const transfers = [];
     for (const hash of children) {
-      const child = await chain().getTransaction({ hash });
+      const child = await readTransaction(hash);
       assert.equal(statusName(child), "FINALIZED");
       assert.ok(
         executionSucceeded(child),

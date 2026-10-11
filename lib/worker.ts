@@ -8,6 +8,7 @@ import {
   object,
   statusName,
   executionSucceeded,
+  readTransaction,
   childExecutionState,
   publicReceipt,
   type Address,
@@ -153,9 +154,7 @@ async function submit(job: Job) {
   return hash;
 }
 async function poll(job: Job) {
-  const r = await chain().getTransaction({
-    hash: job.tx_hash as TransactionHash,
-  });
+  const r = await readTransaction(job.tx_hash as TransactionHash);
   const status = statusName(r);
   if (["FINALIZED", "UNDETERMINED", "CANCELED"].includes(status)) {
     await db()`INSERT INTO receipts(tx_hash,question_id,kind,receipt) VALUES(${job.tx_hash},${job.question_id},${job.kind},${JSON.stringify(publicReceipt(r))}::jsonb) ON CONFLICT(tx_hash) DO UPDATE SET receipt=EXCLUDED.receipt`;
@@ -168,7 +167,7 @@ async function poll(job: Job) {
     });
     const childReceipts = [];
     for (const hash of children) {
-      const child = await chain().getTransaction({ hash });
+      const child = await readTransaction(hash);
       childReceipts.push(child);
       await db()`INSERT INTO receipts(tx_hash,question_id,kind,receipt) VALUES(${hash},${job.question_id},'internal',${JSON.stringify(publicReceipt(child))}::jsonb) ON CONFLICT(tx_hash) DO UPDATE SET receipt=EXCLUDED.receipt`;
     }

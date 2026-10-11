@@ -12,6 +12,7 @@ import {
   publicReceipt,
   statusName,
   childExecutionState,
+  supplementStudioReceipt,
 } from "../../lib/chain";
 import { isReadOnlyDatabaseRequest } from "../../lib/db";
 process.env.ENCRYPTION_KEY = "ab".repeat(32);
@@ -209,4 +210,28 @@ test("database retries exclude uncertain writes and mixed transactions", () => {
     false,
   );
   assert.equal(isReadOnlyDatabaseRequest("invalid"), false);
+});
+
+test("Studio zero transfer type survives SDK field loss", () => {
+  const decoded = {
+    type: undefined,
+    typeHex: undefined,
+    status: 7,
+    value: 12n,
+    value_credited: true,
+    consensus_data: {},
+  };
+  assert.equal(executionSucceeded(decoded), false);
+  const receipt = supplementStudioReceipt(decoded, {
+    type: 0,
+    value_credited: true,
+  });
+  assert.equal(executionSucceeded(receipt), true);
+  assert.equal(publicReceipt(receipt).transaction_type, 0);
+  assert.equal(
+    executionSucceeded(
+      supplementStudioReceipt(decoded, { type: 2, value_credited: true }),
+    ),
+    false,
+  );
 });
