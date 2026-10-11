@@ -2,6 +2,30 @@ import json
 import hashlib
 from pathlib import Path
 import pytest
+import shutil
+from functools import partial
+
+@pytest.fixture(scope="session")
+def pinned_sdk_bundle():
+    from gltest.direct.sdk_loader import CACHE_DIR
+    from genvm_linter.validate.artifacts import download_artifacts
+    version = 'v0.3.0-rc7'
+    # GenVM renamed the release bundle. The linter handles both published names;
+    # direct runner 0.29.2 still requests the retired filename on a cold cache.
+    artifact = download_artifacts(version)
+    target = CACHE_DIR / ('genvm-universal-' + version + '.tar.xz')
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix('.tmp')
+        shutil.copyfile(artifact, temporary)
+        temporary.replace(target)
+    return version
+
+
+@pytest.fixture
+def direct_deploy(direct_deploy, pinned_sdk_bundle):
+    return partial(direct_deploy, sdk_version=pinned_sdk_bundle)
+
 
 @pytest.fixture
 def spec():
