@@ -1,0 +1,20 @@
+{
+  "hash": "0xb4734ca650d71c1d2a558ac6b2ef45334bc16c60516fded875dc270d93ad094c",
+  "status": 7,
+  "address": "0x6370507040Ec6dA24dd0Ce72713F72cC70bc06Be",
+  "votes": {
+    "0x03D58A4DeF6fDFc032A56374785a5F571D07Bc11": "agree",
+    "0x4EDbE1FC9EAeC7b0EBA849b0C76AE73Eb0ad5C47": "agree",
+    "0x5310dcF075E0BD47d29B8ec6581F736C767f54D2": "agree",
+    "0x90402341F0B0e97b23023c0a87de957FB7148E0F": "agree",
+    "0xec2Fb79cd12255Eb34886CEd7332f27B98DEe658": "agree"
+  },
+  "execution_result": "SUCCESS",
+  "result": {
+    "status": "return",
+    "payload": {
+      "readable": "null"
+    }
+  },
+  "error": null
+}

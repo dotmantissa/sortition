@@ -1,0 +1,17 @@
+{
+  "network": "studionet",
+  "chain_id": 61999,
+  "deployer": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+  "contracts": {
+    "vault": {
+      "tx_hash": "0xe14214705ffbc8284e5c7963463bff75ba2a6b46acc66dbb823bd322c4b35961",
+      "address": "0xE848136dC8Db7343BfF9Ca574dD8799c12deF62b"
+    },
+    "registry": {
+      "tx_hash": "0x2f435577902e059e6863724b4b3fced12a9fb43eafb429ad798c2cb8274a9562",
+      "address": "0x84B96520c9DA4C64cF60Bb91b163b0C75eC20B9a"
+    }
+  },
+  "configure_tx": "0x6b01632db7a0669da35f76ac08485fa09b33a10124eeb08b0b197905ed35bcee",
+  "configured": true
+}

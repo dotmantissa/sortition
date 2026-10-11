@@ -74,6 +74,8 @@ Copy [SortitionResolution](components/SortitionResolution.tsx) into a React appl
 
 ## Deployment
 
+A [complete Studio docket](https://sortition.vercel.app/dockets/c6df7b42-6413-47da-9e25-b8e7335bca94) records two real source readings, a bonded hearing, final settlement and a verified native payment.
+
 The current Studio addresses and verified transaction hashes are in [the deployment record](deployments/studionet.json). The registry factory deploys the docket contract for every question. Earlier deployments are kept as history.
 
 The Next.js application can run on Vercel or any Node host. Set server environment variables through the host's secret manager. Run `scripts/worker.ts` as a persistent process, or call the authenticated worker endpoint from a scheduler. A sample systemd unit is included in [operations notes](docs/operations.md). The installed worker runs under systemd with user lingering enabled. A scheduled GitHub Actions worker also calls the production endpoint using an encrypted repository secret.

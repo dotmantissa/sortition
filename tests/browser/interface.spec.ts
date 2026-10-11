@@ -133,6 +133,19 @@ test("live public docket preserves locked sources and exposes independent jury r
     ).toBeVisible();
   }
   await expect(page.locator(".evidence-value").first()).toContainText("200=ok");
+  if (
+    question.receipts.some(
+      (r: { receipt: { transaction_type?: number } }) =>
+        r.receipt.transaction_type === 0,
+    )
+  ) {
+    await expect(
+      page.getByRole("heading", { name: "Native payment", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Native value: 12 GEN wei.", { exact: false }),
+    ).toBeVisible();
+  }
   const juror = page
     .locator(".juror")
     .filter({ has: page.locator(".juror-reading") })

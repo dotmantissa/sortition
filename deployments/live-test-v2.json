@@ -1,0 +1,13 @@
+{
+  "failed_attempts": [
+    "bacb9a37-ea5f-4670-a658-798cfc448a40",
+    "25755f43-f2a8-474f-9c03-a4def0501b82",
+    "e6ecee1b-2e63-4062-83d9-fc81426d2bda"
+  ],
+  "question_id": "a3480e93-36ca-4ca0-90de-07afa9d2cd38",
+  "docket_address": "0x2652650708fc0027D2Fd553ebfdFA5e1299BB607",
+  "criteria_hash": "cdd3117dab664011e6f059c93df32cec7a944a4468f57e2bae85547df27f8bb4",
+  "fund": {
+    "tx_hash": "0x9eaaf25d546995558f9782064466d4271ea80b3b780fd5f244d107e8ecb721db"
+  }
+}

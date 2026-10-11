@@ -1,0 +1,8 @@
+{
+  "url": "https://sortition.vercel.app",
+  "deployment_id": "dpl_31HZRcCr9zTXvHwhT1qYEx3zNZwe",
+  "state": "READY",
+  "application_commit": "f69322167b008245ca1c427aefd2fd6dc3326d1b",
+  "verified_at": "2026-10-11T21:23:02.090399+00:00",
+  "worker": "Persistent systemd user service with an authenticated scheduled backup"
+}
