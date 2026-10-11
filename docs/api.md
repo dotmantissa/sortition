@@ -37,7 +37,7 @@ Send `POST /api/questions/:id/actions` with the same authentication and a new id
 { "action": "resolve" }
 ```
 
-Actions are `fund`, `resolve`, `challenge`, `finalize`, `withdraw` and `protocol_appeal`. A challenge also requires `expected_outcome`, which is YES, NO or UNRESOLVABLE and must differ from the current result. A funded challenge queues the larger jury automatically. Any email operator can challenge a public docket. Other application actions belong to its registered operator.
+Actions are `fund`, `resolve`, `challenge`, `finalize`, `withdraw` and `protocol_appeal`. A challenge also requires `expected_outcome`, which is YES, NO or UNRESOLVABLE and must differ from the current result. A funded challenge queues the larger jury automatically. Any email operator can challenge a public docket. Fee, resolution and finalization actions belong to the registered operator. A winning claimant can withdraw only their own credit.
 
 Writes return an operation ID and queued status. An authenticated docket read includes your operations and their public transaction hashes. `needs_review` means submission was interrupted before a hash was durably recorded. Do not resubmit money until the relay history has been reconciled.
 
