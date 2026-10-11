@@ -150,7 +150,24 @@ test("emitted payments require successful final child receipts", () => {
     childExecutionState([contract(7, "SUCCESS"), contract(5, "SUCCESS")]),
     "pending",
   );
-  assert.equal(childExecutionState([{ type: 0, status: 7 }]), "complete");
+  assert.equal(
+    childExecutionState([{ typeHex: 0, value_credited: true, status: 7 }]),
+    "complete",
+  );
+  assert.equal(
+    childExecutionState([{ typeHex: "0x0", value_credited: true, status: 7 }]),
+    "complete",
+  );
+  assert.equal(
+    childExecutionState([{ typeHex: 0, value_credited: false, status: 7 }]),
+    "failed",
+  );
+  assert.equal(childExecutionState([{ typeHex: 0, status: 7 }]), "failed");
+  assert.equal(
+    publicReceipt({ typeHex: 0, status: 7, value_credited: true })
+      .transaction_type,
+    0,
+  );
   assert.equal(childExecutionState([{ type: 0, status: 6 }]), "failed");
   assert.equal(
     executionSucceeded({ type: 0, status: 7, txExecutionResultName: "ERROR" }),

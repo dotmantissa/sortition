@@ -61,6 +61,15 @@ export function statusName(receipt: unknown) {
       )[s] || "PENDING"
     : String(s);
 }
+export function transactionType(receipt: unknown) {
+  const r = object(receipt),
+    raw = r.typeHex ?? r.type;
+  if (raw === "SEND") return 0;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 && value <= 2
+    ? value
+    : undefined;
+}
 export function executionSucceeded(receipt: unknown) {
   const r = object(receipt);
   const c = object(r.consensus_data || r.consensusData);
@@ -75,7 +84,8 @@ export function executionSucceeded(receipt: unknown) {
     r.txExecutionResultName === "SUCCESS" ||
     r.tx_execution_result_name === "SUCCESS" ||
     // Studio native SEND transactions bypass GenVM and finalize after ledger credit.
-    ((r.type === 0 || r.type === "SEND") &&
+    (transactionType(r) === 0 &&
+      r.value_credited === true &&
       statusName(r) === "FINALIZED" &&
       l.execution_result !== "ERROR" &&
       r.txExecutionResultName !== "ERROR" &&
@@ -130,7 +140,8 @@ export function publicReceipt(receipt: unknown) {
   const leaders = c.leader_receipt || c.leaderReceipt;
   return {
     hash: r.hash || r.txId,
-    transaction_type: r.type,
+    transaction_type: transactionType(r),
+    value_credited: r.value_credited,
     value: r.value,
     sender: r.from_address || r.sender,
     recipient: r.to_address || r.recipient,
