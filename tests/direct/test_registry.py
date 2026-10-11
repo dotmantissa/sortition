@@ -37,3 +37,18 @@ def test_access_and_pagination(registry, spec, direct_bob, direct_vm):
         registry.list_questions(-1, 10)
     with direct_vm.expect_revert('not found'):
         registry.get_question('absent')
+
+@pytest.mark.parametrize('fee,bond', [(-1,1),(0,0),(0,-1),(0,10**31)])
+def test_bad_escrow_terms(registry,spec,direct_alice,direct_vm,fee,bond):
+    with direct_vm.expect_revert('Invalid fee'):
+        registry.register('q1',json.dumps(spec),address(direct_alice),fee,bond)
+
+def test_source_count_bound(registry,spec,direct_alice,direct_vm):
+    spec['sources']=[{'name':str(i),'url':f'https://{i}.example/result'} for i in range(6)]
+    with direct_vm.expect_revert('two to five'):
+        registry.register('q1',json.dumps(spec),address(direct_alice),0,1)
+
+def test_appeal_window_bounds(direct_vm,direct_deploy,direct_alice):
+    direct_vm.sender=direct_alice
+    with direct_vm.expect_revert('appeal window'):
+        direct_deploy('contracts/question_registry.py',address(direct_alice),'code',59)

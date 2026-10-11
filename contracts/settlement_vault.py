@@ -66,7 +66,8 @@ class SettlementVault(gl.Contract):
         a['challenges'].append({'claimant': str(Address(claimant)), 'expected': expected_outcome, 'bond': str(required), 'round': state['round']})
         a['challenge_count'] += 1
         self.accounts[question_id] = json.dumps(a)
-        gl.get_contract_at(Address(a['docket'])).emit(on='finalized').resolve()
+        # The relay observes this finalized bond and requests a larger random panel.
+        # Resolution can also be retried permissionlessly if the relay is unavailable.
 
     @gl.public.write
     def finalize(self, question_id: str) -> None:

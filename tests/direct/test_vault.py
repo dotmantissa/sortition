@@ -78,3 +78,27 @@ def test_no_unfunded_or_unauthorized_challenge(vault, direct_vm, direct_bob):
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert('Only'):
         c.challenge('q1', address(direct_bob), 'NO')
+
+def test_pending_challenge_blocks_finalization(vault,direct_vm,direct_bob):
+    c,state=vault
+    funded(c,direct_vm)
+    direct_vm.value=2
+    c.challenge('q1',address(direct_bob),'NO')
+    warp(direct_vm,'2028-01-01T00:02:00Z')
+    with direct_vm.expect_revert('completed round'):
+        c.finalize('q1')
+
+def test_unauthorized_withdraw(vault,direct_vm,direct_charlie,direct_bob):
+    c,_=vault
+    direct_vm.sender=direct_charlie
+    with direct_vm.expect_revert('Only beneficiary'):
+        c.withdraw(address(direct_bob))
+
+def test_zero_fee_binding_is_funded(vault,direct_vm,direct_alice,direct_bob):
+    c,_=vault
+    c.bind('q2',address(direct_bob),address(direct_bob),0,1)
+    assert c.get_account('q2')['funded']
+    with direct_vm.expect_revert('Invalid escrow'):
+        c.bind('q2',address(direct_bob),address(direct_bob),0,1)
+    with direct_vm.expect_revert('not found'):
+        c.get_account('missing')

@@ -62,3 +62,39 @@ def test_hash_mismatch(direct_vm, direct_deploy, direct_alice, spec):
     direct_vm.sender = direct_alice
     with direct_vm.expect_revert('hash mismatch'):
         direct_deploy('contracts/sortition_docket.py', json.dumps(spec), 'bad', address(direct_alice), 'q', 60)
+
+@pytest.mark.parametrize('policy,positions,expected', [
+    ('majority',['YES','YES','NO'],'YES'),
+    ('majority',['YES','UNKNOWN','NO'],'UNRESOLVABLE'),
+    ('unanimous',['NO','NO','NO'],'NO'),
+    ('unanimous',['YES','YES','NO'],'UNRESOLVABLE'),
+    ('tie_break',['YES','YES','NO'],'YES'),
+    ('tie_break',['NO','YES','YES'],'NO'),
+    ('tie_break',['YES','UNKNOWN','YES'],'UNRESOLVABLE'),
+])
+def test_registered_disagreement_policies(direct_vm,direct_deploy,direct_alice,spec,monkeypatch,policy,positions,expected):
+    direct_vm.sender=direct_alice
+    warp(direct_vm,'2028-01-01T00:00:00Z')
+    spec['sources'].append({'name':'Official C','url':'https://c.example/rate'})
+    spec['disagreement_rule']=policy
+    canonical=json.dumps(spec,sort_keys=True,separators=(',',':'))
+    c=direct_deploy('contracts/sortition_docket.py',canonical,hashlib.sha256(canonical.encode()).hexdigest(),address(direct_alice),'q',60)
+    import genlayer
+    class Vault:
+        def view(self):return self
+        def get_account(self,key):return {'funded':True,'settled':False,'challenge_count':0}
+    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Vault())
+    for source,position in zip(spec['sources'],positions):
+        direct_vm.mock_web(source['url'],{'status':200,'body':'Final value is 6 percent.'})
+        direct_vm.mock_llm('.*'+source['url']+'.*',json.dumps({'position':position,'value':'6 percent','excerpt':'6 percent'}))
+    c.resolve()
+    assert c.get_settlement()['outcome']==expected
+
+@pytest.mark.parametrize('account,message',[({'funded':False,'settled':False,'challenge_count':0},'not funded'),({'funded':True,'settled':True,'challenge_count':0},'final')])
+def test_escrow_gates_resolution(docket,direct_vm,monkeypatch,account,message):
+    import genlayer
+    class Vault:
+        def view(self):return self
+        def get_account(self,key):return account
+    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Vault())
+    with direct_vm.expect_revert(message):docket.resolve()
