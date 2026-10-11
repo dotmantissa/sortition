@@ -1,0 +1,33 @@
+name: Checks
+on:
+  push:
+  pull_request:
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_PRIVY_APP_ID: cmv45byqz00t10fl6gmvif166
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: genvm-lint check contracts/question_registry.py
+      - run: genvm-lint check contracts/sortition_docket.py
+      - run: genvm-lint check contracts/settlement_vault.py
+      - run: python -m pytest tests/direct -q

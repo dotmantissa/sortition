@@ -29,6 +29,8 @@ The worker reads the private environment file through Next's environment loader.
 
 Find the operation marked `needs_review`. Inspect its creation time, the relay nonce and transaction history on Studio. If a matching transaction exists, record its hash and move the operation to `submitted`. If it provably never reached the network, move it back to `queued`. Never guess for a payable operation. The worker deliberately stops here to prevent duplicate bonds or fees.
 
+The deployed user service has lingering enabled so it survives logout. GitHub Actions runs a backup scheduler every five minutes, making four ticks per run. Scheduled actions can be delayed by GitHub; the continuous worker provides prompt processing. Both use the same database lease.
+
 Lease expiry lets another worker resume after a crash. A stale `submitting` operation becomes `needs_review` after ten minutes. A receipt with FINALIZED status can still contain a failed execution. Always inspect the actual leader execution and then verify contract state.
 
 Factory children finish asynchronously. A parent registration receipt can finalize before its docket and vault binding are readable. Leave that operation submitted; the worker retries the read and records the child receipts.

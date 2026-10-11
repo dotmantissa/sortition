@@ -2,6 +2,8 @@
 
 A fair hearing for every market question.
 
+[Open Sortition](https://sortition.vercel.app)
+
 Prediction markets put a price on an opinion. Someone still has to decide what actually happened. Sortition gives that decision a public home: a question, a locked set of sources, rules written before the close, and a jury selected by GenLayer.
 
 There is no exchange here. No positions, no liquidity pool, and no house view. An operator brings a market question and takes a final verdict back to their own venue.
@@ -64,7 +66,7 @@ The live test registers a real IANA and MDN question on Studio, verifies the fac
 
 Create an API key in the console and keep it on your venue's server. Send a bearer token and a unique `Idempotency-Key` with each write. See [the API guide](docs/api.md) for payloads and webhook verification.
 
-The [Polymarket adapter](integrations/polymarket.ts) imports real question data through the public Gamma API. It registers a separate Sortition docket for that question. It does not replace Polymarket's existing resolver. Add the remaining authoritative sources and review the imported criteria before registration.
+The [Polymarket adapter](integrations/polymarket.ts) imports real question data through the public Gamma API. The [worked reference](deployments/polymarket-reference.json) records a real venue question registered through the production API. It registers a separate Sortition docket for that question. It does not replace Polymarket's existing resolver. Add the remaining authoritative sources and review the imported criteria before registration.
 
 Copy [SortitionResolution](components/SortitionResolution.tsx) into a React application to show a final settlement and link to the full docket. The widget never treats a provisional result as final.
 
@@ -72,7 +74,7 @@ Copy [SortitionResolution](components/SortitionResolution.tsx) into a React appl
 
 The current Studio addresses and verified transaction hashes are in [the deployment record](deployments/studionet.json). The registry factory deploys the docket contract for every question. Earlier deployments are kept as history.
 
-The Next.js application can run on Vercel or any Node host. Set server environment variables through the host's secret manager. Run `scripts/worker.ts` as a persistent process, or call the authenticated worker endpoint from a scheduler. A sample systemd unit is included in [operations notes](docs/operations.md).
+The Next.js application can run on Vercel or any Node host. Set server environment variables through the host's secret manager. Run `scripts/worker.ts` as a persistent process, or call the authenticated worker endpoint from a scheduler. A sample systemd unit is included in [operations notes](docs/operations.md). The installed worker runs under systemd with user lingering enabled. A scheduled GitHub Actions worker also calls the production endpoint using an encrypted repository secret.
 
 An API response alone is not a trustless bridge to another chain. A market contract must use a verified GenLayer state bridge or its own authenticated oracle before making payouts. Studio uses test GEN and is intended for development.
 

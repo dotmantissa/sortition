@@ -1,0 +1,16 @@
+.env*
+TASKS.md
+node_modules
+.next
+.next-dev
+.git
+.pytest_cache
+__pycache__
+.gltest_cache
+test-results
+playwright-report
+.vercel
+
+requirements.txt
+contracts/
+tests/
