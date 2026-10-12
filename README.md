@@ -12,7 +12,7 @@ There is no exchange here. No positions, no liquidity pool, and no house view. A
 
 Register a question through the email console or API. Lock two to five named sources, choose how disagreements are handled, name a tie source, and write down when the honest answer is unresolvable. Each question gets its own contract address and public docket.
 
-Request a resolution after the question closes. Every validator fetches every registered source and independently extracts the facts. Consensus checks the answer, the intermediate readings, source availability, global uncertainty conditions and every stored evidence field. The record includes evidence digests, quotations, jury receipts and votes.
+Request a resolution after the question closes. Each completed validator reading fetches every registered source and independently extracts the facts. Studio may stop remaining validators once a quorum forms; idle receipts are shown as idle. Consensus checks the answer, the intermediate readings, source availability, global uncertainty conditions and every stored evidence field. The record includes evidence digests, quotations, jury receipts and votes.
 
 Challenge a reading with a bond. Bonds double each round and the requested jury grows from 5 to 7 to 9 validators. GenLayer chooses the participants. Native protocol appeals are paused on this Studio deployment after a rollback failed live verification. Bonded hearings remain available. A fresh application challenge window starts after the ruling is final.
 

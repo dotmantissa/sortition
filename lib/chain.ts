@@ -194,11 +194,21 @@ function redactReceiptHistory(value: unknown): unknown {
     Object.entries(value)
       .filter(
         ([key]) =>
-          !/secret|token|password|credential|private|api.?key|node_config|plugin_config/i.test(
+          !/secret|token|password|credential|private|api.?key|plugin_config/i.test(
             key,
           ),
       )
-      .map(([key, v]) => [key, redactReceiptHistory(v)]),
+      .map(([key, v]) => [
+        key,
+        key === "node_config"
+          ? {
+              address:
+                typeof object(v).address === "string"
+                  ? object(v).address
+                  : undefined,
+            }
+          : redactReceiptHistory(v),
+      ]),
   );
 }
 export async function readFinal(

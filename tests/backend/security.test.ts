@@ -237,3 +237,24 @@ test("Studio zero transfer type survives SDK field loss", () => {
     false,
   );
 });
+
+test("rotation history keeps juror addresses and discards their secret configuration", () => {
+  const receipt = publicReceipt({
+    consensus_history: {
+      rounds: [
+        {
+          node_config: {
+            address: "0xjuror",
+            api_key: "must disappear",
+            plugin_config: { credential: "must disappear" },
+          },
+          private_key: "must disappear",
+        },
+      ],
+    },
+  });
+  assert.deepEqual(receipt.history, {
+    rounds: [{ node_config: { address: "0xjuror" } }],
+  });
+  assert.ok(!JSON.stringify(receipt).includes("must disappear"));
+});
