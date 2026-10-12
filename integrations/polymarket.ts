@@ -9,7 +9,15 @@ export async function importPolymarket(slug: string) {
     { signal: AbortSignal.timeout(10000) },
   );
   if (!response.ok) throw Error("Venue request failed");
-  const markets = await response.json();
+  let markets = await response.json();
+  if (Array.isArray(markets) && !markets.length) {
+    const closed = await fetch(
+      `https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}&closed=true`,
+      { signal: AbortSignal.timeout(10000) },
+    );
+    if (!closed.ok) throw Error("Venue request failed");
+    markets = await closed.json();
+  }
   const market = markets[0];
   if (!market) throw Error("Market not found");
   const outcomes: unknown =
@@ -42,6 +50,8 @@ export async function registerPolymarketQuestion({
   closeTimestamp,
   disagreementRule,
   tieBreakUrl,
+  webhook,
+  idempotencyKey,
 }: {
   slug: string;
   sources: Source[];
@@ -49,6 +59,8 @@ export async function registerPolymarketQuestion({
   closeTimestamp: number;
   disagreementRule: Specification["disagreement_rule"];
   tieBreakUrl: string;
+  webhook?: { url: string; secret: string };
+  idempotencyKey?: string;
 }) {
   const market = await importPolymarket(slug);
   const specification = specificationSchema.parse({
@@ -70,9 +82,14 @@ export async function registerPolymarketQuestion({
     headers: {
       Authorization: `Bearer ${process.env.SORTITION_API_KEY}`,
       "Content-Type": "application/json",
-      "Idempotency-Key": crypto.randomUUID(),
+      "Idempotency-Key": idempotencyKey || crypto.randomUUID(),
     },
-    body: JSON.stringify({ specification, fee: "0", base_bond: "1" }),
+    body: JSON.stringify({
+      specification,
+      fee: "0",
+      base_bond: "1",
+      ...(webhook ? { webhook } : {}),
+    }),
   });
   if (!response.ok) throw Error("Sortition registration failed");
   return response.json() as Promise<{ id: string; operation_id: string }>;
