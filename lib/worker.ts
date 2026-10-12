@@ -397,6 +397,13 @@ export async function workerTick() {
           await submit(job, token);
         } catch (e) {
           const message = e instanceof Error ? e.message : "";
+          if (
+            message ===
+            "Preparation failed before any transaction was sent. Please try again."
+          ) {
+            await sql`UPDATE operations SET status='queued',error=NULL,poll_failures=poll_failures+1,next_attempt_at=now()+(LEAST(300,20*power(2,LEAST(poll_failures,4)))*interval '1 second'),updated_at=now() WHERE id=${job.id} AND tx_hash IS NULL`;
+            return { processed: job.id };
+          }
           const safe =
             message.startsWith("The relay") ||
             message.startsWith("The protocol") ||

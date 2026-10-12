@@ -26,6 +26,7 @@ function harness(
     messageHandoff?: boolean;
     unprepared?: boolean;
     nativeDisabled?: boolean;
+    badPreparation?: boolean;
   } = {},
 ) {
   const calls: { query: string; values: any[] }[] = [],
@@ -148,7 +149,11 @@ function harness(
     },
     readFinal: async (_a: string, method: string) => {
       chainCalls.push(method);
-      if (options.badIndex) throw Error("unavailable old question");
+      if (
+        options.badIndex ||
+        (options.badPreparation && method === "get_account")
+      )
+        throw Error("unavailable read");
       if (method === "get_question")
         return {
           docket_address: "0xdocket",
@@ -396,4 +401,17 @@ test("a challenge supporting the existing outcome is rejected before paying a bo
     /open, different ruling/,
   );
   assert.ok(!h.chainCalls.some((c) => c.startsWith("write:")));
+});
+
+test("a transient preflight read failure safely backs off without sending value or requiring review", async () => {
+  const h = harness({ badPreparation: true });
+  h.jobs.push({ ...h.job("fund"), status: "queued", tx_hash: null });
+  await h.exports.workerTick();
+  assert.ok(
+    h.calls.some((c) =>
+      c.query.startsWith("UPDATE operations SET status='queued',error=NULL"),
+    ),
+  );
+  assert.ok(!h.chainCalls.some((c) => c.startsWith("write:")));
+  assert.ok(!h.calls.some((c) => c.values.includes("needs_review")));
 });
