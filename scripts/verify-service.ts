@@ -38,9 +38,15 @@ assert.equal(rpcBody.result.escrow.outcome, settlement.outcome);
 assert.equal(rpcBody.result.docket.rounds.length, 2);
 assert.equal((await fetch(`${base}/api/questions?mine=true`)).status, 401);
 const sql = db();
+const ownerRows = await sql`SELECT owner_id FROM questions WHERE id=${id}`;
+assert.ok(
+  ownerRows[0],
+  "The verified question must exist in the service database.",
+);
+const ownerId = ownerRows[0].owner_id;
 const key = "srt_" + randomBytes(32).toString("hex"),
   keyId = randomUUID();
-await sql`INSERT INTO api_keys(id,owner_id,key_hash,prefix) VALUES(${keyId},'sortition:studio:verification',${digest(key)},${key.slice(0, 12)})`;
+await sql`INSERT INTO api_keys(id,owner_id,key_hash,prefix) VALUES(${keyId},${ownerId},${digest(key)},${key.slice(0, 12)})`;
 try {
   const headers = { Authorization: `Bearer ${key}` };
   const ownedResponse = await fetch(`${base}/api/questions/${id}`, { headers });
