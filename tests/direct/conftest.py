@@ -63,7 +63,7 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
     direct_vm.warp('2028-01-01T00:00:00Z')
     c = direct_deploy('contracts/settlement_vault.py', address(direct_alice))
     c.configure(address(direct_alice))
-    c.bind('q1', address(direct_bob), address(direct_bob), 10, 2)
+    c.bind('q1', address(direct_bob), address(direct_bob), 10, 2, 60)
     import genlayer
     state = {'outcome': 'YES', 'round': 1, 'deadline': 1830297660}
     class Docket:

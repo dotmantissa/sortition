@@ -5,6 +5,7 @@ def funded(c, vm):
     vm.value = 10
     c.fund('q1')
     vm.value = 0
+    c.open_round('q1')
 
 def test_fund_exact_once(vault, direct_vm):
     c, _ = vault
@@ -22,7 +23,7 @@ def test_one_time_config_and_bind_auth(vault, direct_vm, direct_bob):
         c.configure(address(direct_bob))
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert('Only registry'):
-        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1)
+        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1, 60)
 
 def test_bonds_escalate_and_winner_paid(vault, direct_vm, direct_bob):
     c, state = vault
@@ -32,11 +33,13 @@ def test_bonds_escalate_and_winner_paid(vault, direct_vm, direct_bob):
     c.challenge('q1', address(direct_bob), 'NO')
     assert c.get_account('q1')['challenge_count'] == 1
     state.update(round=2, outcome='NO')
+    c.open_round('q1')
     with direct_vm.expect_revert('exact escalating'):
         c.challenge('q1', address(direct_bob), 'YES')
     direct_vm.value = 4
     c.challenge('q1', address(direct_bob), 'YES')
     state.update(round=3, outcome='NO')
+    c.open_round('q1')
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
     assert c.get_credit(address(direct_bob)) == '6'
@@ -50,6 +53,7 @@ def test_losing_sponsored_bond_never_pays_question_beneficiary(vault, direct_vm,
     direct_vm.value = 2
     c.challenge('q1', address(direct_bob), 'NO')
     state['round'] = 2
+    c.open_round('q1')
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
     assert c.get_credit(address(direct_bob)) == '0'
@@ -98,10 +102,10 @@ def test_unauthorized_withdraw(vault,direct_vm,direct_charlie,direct_bob):
 
 def test_zero_fee_binding_is_funded(vault,direct_vm,direct_alice,direct_bob):
     c,_=vault
-    c.bind('q2',address(direct_bob),address(direct_bob),0,1)
+    c.bind('q2',address(direct_bob),address(direct_bob),0,1,60)
     assert c.get_account('q2')['funded']
     with direct_vm.expect_revert('Invalid escrow'):
-        c.bind('q2',address(direct_bob),address(direct_bob),0,1)
+        c.bind('q2',address(direct_bob),address(direct_bob),0,1,60)
     with direct_vm.expect_revert('not found'):
         c.get_account('missing')
 
@@ -113,13 +117,16 @@ def test_multiple_winners_share_pool_and_dust_without_losing_value(vault,direct_
     c.challenge('q1',address(direct_bob),'NO')
     direct_vm.sender=direct_alice
     state.update(round=2,outcome='NO')
+    c.open_round('q1')
     direct_vm.value=4
     c.challenge('q1',address(direct_alice),'YES')
     state.update(round=3,outcome='YES')
+    c.open_round('q1')
     direct_vm.value=8
     direct_vm.sender=direct_charlie
     c.challenge('q1',address(direct_charlie),'NO')
     state.update(round=4,outcome='NO')
+    c.open_round('q1')
     warp(direct_vm,'2028-01-01T00:02:00Z')
     c.finalize('q1')
     assert c.get_credit(address(direct_bob))=='2'
@@ -136,6 +143,7 @@ def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm
     direct_vm.value=2
     c.challenge('q1',address(direct_bob),'NO')
     state['round']=2
+    c.open_round('q1')
     warp(direct_vm,'2028-01-01T00:02:00Z')
     c.finalize('q1')
     emitted=[]

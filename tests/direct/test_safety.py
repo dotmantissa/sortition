@@ -8,9 +8,11 @@ def test_sponsored_winning_principal_belongs_to_payer(vault, direct_vm, direct_a
     c, state = vault
     direct_vm.value = 10
     c.fund('q1')
+    c.open_round('q1')
     direct_vm.value = 2
     c.challenge('q1', address(direct_bob), 'NO')
     state.update(round=2, outcome='NO')
+    c.open_round('q1')
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
     assert c.get_credit(address(direct_bob)) == '0'
@@ -22,6 +24,7 @@ def test_failed_payment_restore_requires_backing_and_cannot_replay(vault, direct
     c, state = vault
     direct_vm.value = 10
     c.fund('q1')
+    c.open_round('q1')
     direct_vm.value = 0
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
@@ -47,6 +50,7 @@ def test_payment_delivery_confirmation_keeps_auditable_record(vault, direct_vm, 
     c, state = vault
     direct_vm.value = 10
     c.fund('q1')
+    c.open_round('q1')
     direct_vm.value = 0
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
@@ -74,6 +78,7 @@ def test_settlement_reads_only_final_foreign_state(vault, direct_vm, monkeypatch
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Docket())
     direct_vm.value = 10
     c.fund('q1')
+    c.open_round('q1')
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
     assert calls and c.get_account('q1')['outcome'] == 'NO'
@@ -132,3 +137,20 @@ def test_global_missing_source_exception_overrides_majority(direct_vm, direct_de
     c.resolve()
     assert c.get_settlement()['outcome'] == 'UNRESOLVABLE'
     assert c.get_docket()['rounds'][0]['uncertainty_applies']
+
+
+def test_challenge_window_begins_after_finalized_ruling_is_observed(vault, direct_vm):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    # The old proposal timestamp is already expired, but finality just arrived.
+    warp(direct_vm, '2028-01-01T00:02:00Z')
+    c.open_round('q1')
+    assert c.get_account('q1')['round_deadline'] == state['deadline'] + 120
+    with direct_vm.expect_revert('expired'):
+        c.finalize('q1')
+    with direct_vm.expect_revert('new finalized ruling'):
+        c.open_round('q1')
+    warp(direct_vm, '2028-01-01T00:03:00Z')
+    c.finalize('q1')
+    assert c.get_account('q1')['settled']

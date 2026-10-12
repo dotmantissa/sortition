@@ -37,12 +37,12 @@ class SettlementVault(gl.Contract):
         self.configured = True
 
     @gl.public.write
-    def bind(self, question_id: str, docket: str, beneficiary: str, fee: int, base_bond: int) -> None:
+    def bind(self, question_id: str, docket: str, beneficiary: str, fee: int, base_bond: int, appeal_window: int) -> None:
         if not self.configured or gl.message.sender_address != self.registry:
             raise gl.vm.UserError('Only registry can bind a docket')
-        if question_id in self.accounts or fee < 0 or base_bond <= 0:
+        if question_id in self.accounts or fee < 0 or base_bond <= 0 or not 60 <= appeal_window <= 604800:
             raise gl.vm.UserError('Invalid escrow terms')
-        self.accounts[question_id] = json.dumps({'version': 2, 'docket': str(Address(docket)), 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'funded': fee == 0, 'settled': False, 'challenge_count': 0, 'challenges': [], 'outcome': 'PENDING'})
+        self.accounts[question_id] = json.dumps({'version': 2, 'docket': str(Address(docket)), 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'funded': fee == 0, 'settled': False, 'challenge_count': 0, 'opened_round': 0, 'round_deadline': 0, 'appeal_window': appeal_window, 'challenges': [], 'outcome': 'PENDING'})
 
     @gl.public.view
     def get_account(self, question_id: str) -> dict:
@@ -58,6 +58,16 @@ class SettlementVault(gl.Contract):
         a['funded'] = True
         self.accounts[question_id] = json.dumps(a)
 
+    @gl.public.write
+    def open_round(self, question_id: str) -> None:
+        a = self.get_account(question_id)
+        state = gl.get_contract_at(Address(a['docket'])).view(state=StorageType.LATEST_FINAL).get_settlement()
+        if a['settled'] or not a['funded'] or not state['round'] or state['round'] != a['challenge_count'] + 1 or a['opened_round'] >= state['round']:
+            raise gl.vm.UserError('A new finalized ruling is required to open its window')
+        timestamp = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
+        a.update(opened_round=state['round'], round_deadline=timestamp + a['appeal_window'])
+        self.accounts[question_id] = json.dumps(a)
+
     @gl.public.write.payable
     def challenge(self, question_id: str, claimant: str, expected_outcome: str) -> None:
         if gl.message.sender_address not in (self.owner, Address(claimant)):
@@ -66,7 +76,7 @@ class SettlementVault(gl.Contract):
         state = gl.get_contract_at(Address(a['docket'])).view(state=StorageType.LATEST_FINAL).get_settlement()
         timestamp = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
         required = int(a['base_bond']) * 2 ** a['challenge_count']
-        if a['settled'] or not a['funded'] or state['round'] != a['challenge_count'] + 1 or timestamp >= state['deadline']:
+        if a['settled'] or not a['funded'] or state['round'] != a['challenge_count'] + 1 or a['opened_round'] != state['round'] or timestamp >= a['round_deadline']:
             raise gl.vm.UserError('No round is open for challenge')
         if expected_outcome not in ('YES', 'NO', 'UNRESOLVABLE') or expected_outcome == state['outcome']:
             raise gl.vm.UserError('Challenge must name a different outcome')
@@ -86,7 +96,7 @@ class SettlementVault(gl.Contract):
         a = self.get_account(question_id)
         state = gl.get_contract_at(Address(a['docket'])).view(state=StorageType.LATEST_FINAL).get_settlement()
         timestamp = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
-        if a['settled'] or not a['funded'] or state['round'] != a['challenge_count'] + 1 or timestamp < state['deadline']:
+        if a['settled'] or not a['funded'] or state['round'] != a['challenge_count'] + 1 or a['opened_round'] != state['round'] or timestamp < a['round_deadline']:
             raise gl.vm.UserError('A completed round and expired appeal window are required')
         winners = [c for c in a['challenges'] if c['expected'] == state['outcome']]
         pool = sum(int(c['bond']) for c in a['challenges'])
