@@ -4,6 +4,7 @@ import hashlib
 import pytest
 
 def evidence(vm, position='YES', value='6 percent'):
+    vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable': False}))
     vm.mock_web(r'https://.*\.example/rate', {'status': 200, 'body': 'The final rate is 6 percent.'})
     vm.mock_llm(r'.*Extract evidence.*', json.dumps({'position': position, 'value': value, 'excerpt': '6 percent'}))
 
@@ -31,21 +32,24 @@ def test_ambiguous_evidence(docket, direct_vm):
 
 def test_numbered_evidence_uses_actual_source_line(docket, direct_vm):
     direct_vm.mock_web('.*', {'status': 200, 'body': 'Report\nThe final rate is 6 percent.\nFootnote'})
-    direct_vm.mock_llm('.*', json.dumps({'position': 'YES', 'value': '6 percent', 'evidence_line': 2}))
+    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable': False}))
+    direct_vm.mock_llm('.*Extract evidence.*', json.dumps({'position': 'YES', 'value': '6 percent', 'evidence_line': 2}))
     docket.resolve()
     assert all(s['excerpt'] == 'The final rate is 6 percent.' for s in docket.get_docket()['rounds'][0]['sources'])
 
 @pytest.mark.parametrize('line', [0, -1, 20, '1', True])
 def test_invalid_evidence_line_reverts(docket, direct_vm, line):
     direct_vm.mock_web('.*', {'status': 200, 'body': 'The final rate is 6 percent.'})
-    direct_vm.mock_llm('.*', json.dumps({'position': 'YES', 'value': '6 percent', 'evidence_line': line}))
+    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable': False}))
+    direct_vm.mock_llm('.*Extract evidence.*', json.dumps({'position': 'YES', 'value': '6 percent', 'evidence_line': line}))
     with direct_vm.expect_revert('LLM_ERROR'):
         docket.resolve()
 
 @pytest.mark.parametrize('reply', [{'position': 'MAYBE', 'value': '6'}, {'position': 'YES', 'value': '6', 'excerpt': 'fabricated quote'}, 'not json'])
 def test_bad_model_response_reverts(docket, direct_vm, reply):
     direct_vm.mock_web('.*', {'status': 200, 'body': 'Actual source.'})
-    direct_vm.mock_llm('.*', json.dumps(reply) if isinstance(reply, dict) else reply)
+    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable': False}))
+    direct_vm.mock_llm('.*Extract evidence.*', json.dumps(reply) if isinstance(reply, dict) else reply)
     with direct_vm.expect_revert('LLM_ERROR'):
         docket.resolve()
     assert docket.get_settlement()['outcome'] == 'PENDING'
@@ -74,7 +78,7 @@ def test_validator_rechecks_value_and_reachability(docket, direct_vm):
 def test_hash_mismatch(direct_vm, direct_deploy, direct_alice, spec):
     direct_vm.sender = direct_alice
     with direct_vm.expect_revert('hash mismatch'):
-        direct_deploy('contracts/sortition_docket.py', json.dumps(spec), 'bad', address(direct_alice), 'q', 60)
+        direct_deploy('contracts/sortition_docket.py', json.dumps(spec), 'bad', address(direct_alice), 'q', 60, address(direct_alice))
 
 @pytest.mark.parametrize('policy,positions,expected', [
     ('majority',['YES','YES','NO'],'YES'),
@@ -91,12 +95,13 @@ def test_registered_disagreement_policies(direct_vm,direct_deploy,direct_alice,s
     spec['sources'].append({'name':'Official C','url':'https://c.example/rate'})
     spec['disagreement_rule']=policy
     canonical=json.dumps(spec,sort_keys=True,separators=(',',':'))
-    c=direct_deploy('contracts/sortition_docket.py',canonical,hashlib.sha256(canonical.encode()).hexdigest(),address(direct_alice),'q',60)
+    c=direct_deploy('contracts/sortition_docket.py',canonical,hashlib.sha256(canonical.encode()).hexdigest(),address(direct_alice),'q',60,address(direct_alice))
     import genlayer
     class Vault:
-        def view(self):return self
+        def view(self, **kwargs):return self
         def get_account(self,key):return {'funded':True,'settled':False,'challenge_count':0}
     monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Vault())
+    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable': False}))
     for source,position in zip(spec['sources'],positions):
         direct_vm.mock_web(source['url'],{'status':200,'body':'Final value is 6 percent.'})
         direct_vm.mock_llm('.*'+source['url']+'.*',json.dumps({'position':position,'value':'6 percent','excerpt':'6 percent'}))
@@ -107,7 +112,7 @@ def test_registered_disagreement_policies(direct_vm,direct_deploy,direct_alice,s
 def test_escrow_gates_resolution(docket,direct_vm,monkeypatch,account,message):
     import genlayer
     class Vault:
-        def view(self):return self
+        def view(self, **kwargs):return self
         def get_account(self,key):return account
     monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Vault())
     with direct_vm.expect_revert(message):docket.resolve()

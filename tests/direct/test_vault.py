@@ -28,6 +28,7 @@ def test_bonds_escalate_and_winner_paid(vault, direct_vm, direct_bob):
     c, state = vault
     funded(c, direct_vm)
     direct_vm.value = 2
+    direct_vm.sender = direct_bob
     c.challenge('q1', address(direct_bob), 'NO')
     assert c.get_account('q1')['challenge_count'] == 1
     state.update(round=2, outcome='NO')
@@ -43,7 +44,7 @@ def test_bonds_escalate_and_winner_paid(vault, direct_vm, direct_bob):
     with direct_vm.expect_revert('expired'):
         c.finalize('q1')
 
-def test_defender_and_fee_payout(vault, direct_vm, direct_alice, direct_bob):
+def test_losing_sponsored_bond_never_pays_question_beneficiary(vault, direct_vm, direct_alice, direct_bob):
     c, state = vault
     funded(c, direct_vm)
     direct_vm.value = 2
@@ -51,14 +52,14 @@ def test_defender_and_fee_payout(vault, direct_vm, direct_alice, direct_bob):
     state['round'] = 2
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
-    assert c.get_credit(address(direct_bob)) == '2'
-    assert c.get_credit(address(direct_alice)) == '10'
-    c.withdraw(address(direct_bob))
     assert c.get_credit(address(direct_bob)) == '0'
-    assert int(state['transfer']['value']) == 2
-    assert state['recipient'].lower() == address(direct_bob).lower()
+    assert c.get_credit(address(direct_alice)) == '12'
+    c.withdraw(address(direct_alice))
+    assert c.get_credit(address(direct_alice)) == '0'
+    assert int(state['transfer']['value']) == 12
+    assert state['recipient'].lower() == address(direct_alice).lower()
     with direct_vm.expect_revert('No credit'):
-        c.withdraw(address(direct_bob))
+        c.withdraw(address(direct_alice))
 
 def test_deadlines_and_same_outcome(vault, direct_vm, direct_bob):
     c, state = vault
@@ -72,13 +73,13 @@ def test_deadlines_and_same_outcome(vault, direct_vm, direct_bob):
     with direct_vm.expect_revert('No round'):
         c.challenge('q1', address(direct_bob), 'NO')
 
-def test_no_unfunded_or_unauthorized_challenge(vault, direct_vm, direct_bob):
+def test_no_unfunded_or_unauthorized_challenge(vault, direct_vm, direct_bob, direct_alice):
     c, _ = vault
     with direct_vm.expect_revert('No round'):
         c.challenge('q1', address(direct_bob), 'NO')
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert('Only'):
-        c.challenge('q1', address(direct_bob), 'NO')
+        c.challenge('q1', address(direct_alice), 'NO')
 
 def test_pending_challenge_blocks_finalization(vault,direct_vm,direct_bob):
     c,state=vault
@@ -108,23 +109,26 @@ def test_multiple_winners_share_pool_and_dust_without_losing_value(vault,direct_
     c,state=vault
     funded(c,direct_vm)
     direct_vm.value=2
+    direct_vm.sender=direct_bob
     c.challenge('q1',address(direct_bob),'NO')
+    direct_vm.sender=direct_alice
     state.update(round=2,outcome='NO')
     direct_vm.value=4
     c.challenge('q1',address(direct_alice),'YES')
     state.update(round=3,outcome='YES')
     direct_vm.value=8
+    direct_vm.sender=direct_charlie
     c.challenge('q1',address(direct_charlie),'NO')
     state.update(round=4,outcome='NO')
     warp(direct_vm,'2028-01-01T00:02:00Z')
     c.finalize('q1')
-    assert c.get_credit(address(direct_bob))=='3'
+    assert c.get_credit(address(direct_bob))=='2'
     assert c.get_credit(address(direct_charlie))=='11'
-    assert c.get_credit(address(direct_alice))=='10'
+    assert c.get_credit(address(direct_alice))=='11'
     assert sum(int(c.get_credit(address(a))) for a in [direct_alice,direct_bob,direct_charlie])==24
 
 
-def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm,direct_bob,monkeypatch):
+def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm,direct_bob,direct_alice,monkeypatch):
     import sys
     import genlayer.gl._internal.gl_call as calls
     c,state=vault
@@ -142,10 +146,10 @@ def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm
         return Completed()
     monkeypatch.setattr(sys.modules[c.__class__.__module__],'NativeRecipient',state['recipient_interface'])
     monkeypatch.setattr(calls,'gl_call_generic',capture)
-    c.withdraw(address(direct_bob))
+    c.withdraw(address(direct_alice))
     assert len(emitted)==1
     transfer=emitted[0]['EthSend']
-    assert str(transfer['address']).lower()==address(direct_bob).lower()
+    assert str(transfer['address']).lower()==address(direct_alice).lower()
     assert transfer['calldata']==b''
-    assert int(transfer['value'])==2
+    assert int(transfer['value'])==12
     assert c.get_credit(address(direct_bob))=='0'

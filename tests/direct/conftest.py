@@ -36,10 +36,10 @@ def docket(direct_vm, direct_deploy, direct_alice, spec, monkeypatch):
     direct_vm.sender = direct_alice
     direct_vm.warp('2028-01-01T00:00:00Z')
     canonical = json.dumps(spec, sort_keys=True, separators=(',', ':'))
-    c = direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), address(direct_alice), 'q1', 60)
+    c = direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), address(direct_alice), 'q1', 60, address(direct_alice))
     import genlayer
     class Vault:
-        def view(self): return self
+        def view(self, **kwargs): return self
         def get_account(self, key): return {'funded': True, 'settled': False, 'challenge_count': 0}
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda addr: Vault())
     return c
@@ -67,7 +67,7 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
     import genlayer
     state = {'outcome': 'YES', 'round': 1, 'deadline': 1830297660}
     class Docket:
-        def view(self): return self
+        def view(self, **kwargs): return self
         def get_settlement(self): return state
         def emit(self, **kw): return self
         def resolve(self): pass
