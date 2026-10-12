@@ -531,8 +531,10 @@ export function OperatorConsole() {
                     Fee, appeal bond, and webhook <ChevronDown size={16} />
                   </summary>
                   <p className="field-help">
-                    Studio uses test GEN. Fees and bonds are paid by the server
-                    relay. A funded relay is required for amounts above zero.
+                    Studio uses test GEN. The relay covers fees and bonds within
+                    a daily budget. Each sponsored payment is limited to
+                    1,000,000,000 GEN wei. Any bond repayment returns to its
+                    payer.
                   </p>
                   <div className="form-pair">
                     <label>

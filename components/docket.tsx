@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { CriteriaSeal } from "./seal";
 import { Status } from "./status";
+import { fundedRehearing, protocolAppealable } from "@/lib/lifecycle";
+import { maximumSponsoredPayment } from "@/lib/sponsor-limits";
 import type { Question, Outcome } from "@/lib/types";
 function date(t: number) {
   return (
@@ -95,8 +97,28 @@ export function Docket({ initial }: { initial: Question }) {
     }
   }
   const outcome = q.escrow?.settled ? q.escrow.outcome : latest?.outcome;
+  const pendingRehearing = fundedRehearing(
+    q.escrow,
+    q.docket?.rounds.length || 0,
+  );
+  const waitingWindow =
+    Number(q.escrow?.version) >= 2 &&
+    !!latest &&
+    Number(q.escrow?.opened_round) < latest.round;
+  const deadline =
+    Number(q.escrow?.version) >= 2
+      ? Number(q.escrow?.round_deadline || 0)
+      : Number(latest?.deadline || 0);
   const appealOpen =
-    time > 0 && !!latest && latest.deadline > time && !q.escrow?.settled;
+    time > 0 &&
+    !!latest &&
+    deadline > time &&
+    !q.escrow?.settled &&
+    !pendingRehearing &&
+    !waitingWindow;
+  const nativeAppeal = q.receipts?.filter((r) => r.kind === "resolve").at(-1);
+  const nativeAppealOpen =
+    !!nativeAppeal && protocolAppealable(String(nativeAppeal.receipt.status));
   const nextBond =
     BigInt(q.base_bond) * 2n ** BigInt(q.escrow?.challenge_count || 0);
   return (
@@ -127,6 +149,16 @@ export function Docket({ initial }: { initial: Question }) {
             <div className="alert error" role="alert">
               <CircleAlert size={17} />
               {error}
+            </div>
+          ) : null}
+          {q.archived ? (
+            <div className="alert" role="status">
+              <LockKeyhole size={17} />
+              <p>
+                This docket uses an earlier resolver. Its record is preserved,
+                but new fees and bonds belong in a question registered with the
+                current contracts.
+              </p>
             </div>
           ) : null}
           <section className="docket-section">
@@ -209,7 +241,17 @@ export function Docket({ initial }: { initial: Question }) {
                     <Status value={r.outcome} />
                   </div>
                   <p>Evidence read {date(r.resolved_at)}.</p>
-                  <p>Bonded challenge window closes {date(r.deadline)}.</p>
+                  {r.round === latest?.round && !q.escrow?.settled ? (
+                    <p>
+                      {pendingRehearing
+                        ? "A funded rehearing is waiting for its jury."
+                        : waitingWindow
+                          ? "The finalized jury is opening a fresh challenge window."
+                          : `Bonded challenge window closes ${date(deadline)}.`}
+                    </p>
+                  ) : (
+                    <p>This hearing is preserved in the public record.</p>
+                  )}
                   <details className="receipt-details">
                     <summary>
                       <Scale size={15} /> Inspect every source reading
@@ -371,10 +413,11 @@ export function Docket({ initial }: { initial: Question }) {
               </>
             ) : (
               <>
-                {q.can_operate &&
-                !latest &&
-                time >= q.specification.close_timestamp &&
-                q.escrow?.funded ? (
+                {pendingRehearing ||
+                (q.can_operate &&
+                  !latest &&
+                  time >= q.specification.close_timestamp &&
+                  q.escrow?.funded) ? (
                   <button
                     className="button primary"
                     disabled={busy || active || !time}
@@ -385,10 +428,15 @@ export function Docket({ initial }: { initial: Question }) {
                     ) : (
                       <Scale size={16} />
                     )}
-                    Request resolution
+                    {pendingRehearing
+                      ? "Retry the funded hearing"
+                      : "Request resolution"}
                   </button>
                 ) : null}
-                {q.can_operate && q.escrow && !q.escrow.funded ? (
+                {q.can_operate &&
+                !q.archived &&
+                q.escrow &&
+                !q.escrow.funded ? (
                   <button
                     className="button primary"
                     disabled={busy || active || !time}
@@ -397,11 +445,34 @@ export function Docket({ initial }: { initial: Question }) {
                     Fund the resolution fee
                   </button>
                 ) : null}
-                {appealOpen ? (
+                {waitingWindow ? (
+                  <>
+                    <p>
+                      The verdict is final on GenLayer. Its full challenge
+                      window opens next.
+                    </p>
+                    <button
+                      className="button secondary"
+                      disabled={busy || active}
+                      onClick={() => action("open_round")}
+                    >
+                      Open the hearing window
+                    </button>
+                  </>
+                ) : null}
+                {pendingRehearing ? (
+                  <p>
+                    The bond is already funded. Retrying this hearing does not
+                    charge another bond.
+                  </p>
+                ) : null}
+                {appealOpen && !q.archived ? (
                   <>
                     <p>
                       A different reading deserves a hearing. The next bond is{" "}
-                      {nextBond.toString()} GEN wei, sponsored by the relay.
+                      {nextBond.toString()} GEN wei, sponsored by the relay. You
+                      bring the argument. The relay covers the test bond and
+                      receives any repayment.
                     </p>
                     <label>
                       Outcome you are arguing for
@@ -424,16 +495,27 @@ export function Docket({ initial }: { initial: Question }) {
                     </label>
                     <button
                       className="button secondary"
-                      disabled={busy || active || expected === latest?.outcome}
+                      disabled={
+                        busy ||
+                        active ||
+                        expected === latest?.outcome ||
+                        nextBond > maximumSponsoredPayment
+                      }
                       onClick={() => action("challenge")}
                     >
                       Request a bonded hearing
                     </button>
+                    {nextBond > maximumSponsoredPayment ? (
+                      <p>This bond exceeds the Studio sponsorship budget.</p>
+                    ) : null}
                   </>
                 ) : null}
                 {q.can_operate &&
                 latest &&
                 !appealOpen &&
+                !pendingRehearing &&
+                !waitingWindow &&
+                deadline > 0 &&
                 !q.escrow?.settled ? (
                   <button
                     className="button primary"
@@ -452,13 +534,23 @@ export function Docket({ initial }: { initial: Question }) {
                     Withdraw settlement credit
                   </button>
                 ) : null}
-                {q.operations?.some(
-                  (o) => o.kind === "resolve" && o.status === "submitted",
-                ) ? (
+                {nativeAppealOpen ? (
                   <>
                     <button
                       className="button secondary"
-                      disabled={busy}
+                      disabled={
+                        busy ||
+                        q.operations?.some(
+                          (o) =>
+                            o.kind === "protocol_appeal" &&
+                            [
+                              "queued",
+                              "submitting",
+                              "submitted",
+                              "needs_review",
+                            ].includes(o.status),
+                        )
+                      }
                       onClick={() => action("protocol_appeal")}
                     >
                       Appeal the protocol decision

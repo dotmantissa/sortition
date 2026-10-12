@@ -19,9 +19,13 @@ export function Status({ value }: { value: string }) {
                     ? "Ready to resolve"
                     : value === "resolved"
                       ? "Appeal window"
-                      : value === "failed"
-                        ? "Needs attention"
-                        : "In progress";
+                      : value === "awaiting_rehearing"
+                        ? "Rehearing pending"
+                        : value === "awaiting_window"
+                          ? "Opening challenge window"
+                          : value === "failed"
+                            ? "Needs attention"
+                            : "In progress";
   const Icon =
     value === "UNRESOLVABLE"
       ? CircleHelp

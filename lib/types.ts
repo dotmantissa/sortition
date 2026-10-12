@@ -33,6 +33,7 @@ export type Question = {
   registry_address?: string;
   vault_address?: string;
   can_operate?: boolean;
+  archived?: boolean;
   credit?: string;
   id: string;
   specification: Specification;

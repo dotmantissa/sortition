@@ -4,12 +4,19 @@ export function verifySortitionWebhook(
   rawBody: string,
   header: string,
   secret: string,
+  eventId: string,
   now = Math.floor(Date.now() / 1000),
 ) {
   const match = /^t=(\d+),v1=([a-f0-9]{64})$/.exec(header);
-  if (!match || Math.abs(now - Number(match[1])) > 300) return false;
+  if (
+    !eventId ||
+    eventId.length > 200 ||
+    !match ||
+    Math.abs(now - Number(match[1])) > 300
+  )
+    return false;
   const expected = createHmac("sha256", secret)
-    .update(`${match[1]}.${rawBody}`)
+    .update(`${match[1]}.${eventId}.${rawBody}`)
     .digest();
   return timingSafeEqual(expected, Buffer.from(match[2], "hex"));
 }

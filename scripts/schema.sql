@@ -47,3 +47,13 @@ CREATE TABLE IF NOT EXISTS sponsorships (
   amount numeric(78,0) NOT NULL CHECK(amount>=0), created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS sponsorships_created ON sponsorships(created_at);
+CREATE TABLE IF NOT EXISTS reference_receivers (
+  question_id text PRIMARY KEY REFERENCES questions(id), venue text NOT NULL, market_id text NOT NULL,
+  criteria_hash text NOT NULL, docket_address text NOT NULL, network text NOT NULL,
+  secret_ciphertext text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reference_settlements (
+  question_id text PRIMARY KEY REFERENCES reference_receivers(question_id), event_id text UNIQUE NOT NULL,
+  outcome text NOT NULL CHECK(outcome IN ('YES','NO','UNRESOLVABLE')), action text NOT NULL,
+  body_hash text NOT NULL, received_at timestamptz NOT NULL DEFAULT now()
+);

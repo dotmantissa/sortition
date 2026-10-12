@@ -1,64 +1,101 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LockKeyhole, ExternalLink } from "lucide-react";
-export type Settlement = {
-  question_id: string;
-  outcome: "YES" | "NO" | "UNRESOLVABLE" | "PENDING";
-  final: boolean;
-  criteria_hash: string | null;
-  docket_address: string | null;
-  network: string;
-  rounds: number;
-};
-/** Read-only widget. Never settles a consumer from a provisional verdict. */
+import {
+  parseSettlement,
+  settlementIdentity,
+  type Settlement,
+} from "../lib/settlement";
+export type { Settlement } from "../lib/settlement";
+/** Display and notification only. Venue payouts need their own durable deduplication. */
 export function SortitionResolution({
   questionId,
   baseUrl = "",
   onSettled,
+  criteriaHash,
+  docketAddress,
+  network = "studionet",
 }: {
   questionId: string;
   baseUrl?: string;
+  criteriaHash?: string;
+  docketAddress?: string;
+  network?: string;
   onSettled?: (settlement: Settlement) => void;
 }) {
-  const [data, setData] = useState<Settlement | null>(null);
-  const [error, setError] = useState(false);
+  const key = JSON.stringify([
+    baseUrl,
+    questionId,
+    criteriaHash,
+    docketAddress,
+    network,
+  ]);
+  const [record, setRecord] = useState<{
+    key: string;
+    data: Settlement | null;
+    error: boolean;
+  }>({ key, data: null, error: false });
+  const callback = useRef(onSettled);
+  const notified = useRef(new Set<string>());
+  useEffect(() => {
+    callback.current = onSettled;
+  }, [onSettled]);
   useEffect(() => {
     let active = true,
-      notified = false;
+      inFlight = false;
     const controller = new AbortController();
     const read = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      let final: Settlement | null = null;
       try {
-        const r = await fetch(
+        const response = await fetch(
           `${baseUrl}/api/questions/${encodeURIComponent(questionId)}/settlement`,
-          { signal: controller.signal },
+          {
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(12000),
+            ]),
+            cache: "no-store",
+          },
         );
-        if (!r.ok) throw Error();
-        const d = (await r.json()) as Settlement;
-        if (
-          !["YES", "NO", "UNRESOLVABLE", "PENDING"].includes(d.outcome) ||
-          d.question_id !== questionId
-        )
-          throw Error();
+        if (!response.ok) throw Error("Record unavailable");
+        const data = parseSettlement(await response.json(), {
+          questionId,
+          criteriaHash,
+          docketAddress,
+          network,
+        });
         if (active) {
-          setData(d);
-          setError(false);
-          if (d.final && !notified) {
-            notified = true;
-            onSettled?.(d);
-          }
+          setRecord({ key, data, error: false });
+          if (data.final) final = data;
         }
       } catch {
-        if (active) setError(true);
+        if (active) setRecord({ key, data: null, error: true });
+      } finally {
+        inFlight = false;
+      }
+      if (final && callback.current) {
+        const identity = baseUrl + ":" + settlementIdentity(final);
+        if (!notified.current.has(identity)) {
+          notified.current.add(identity);
+          callback.current(final);
+        }
       }
     };
-    read();
-    const timer = setInterval(read, 15000);
+    void read();
+    const timer = setInterval(() => {
+      void read();
+    }, 15000);
     return () => {
       active = false;
       controller.abort();
       clearInterval(timer);
     };
-  }, [questionId, baseUrl, onSettled]);
+  }, [baseUrl, questionId, criteriaHash, docketAddress, network, key]);
+  // A new question never renders the previous question's data, even before effects run.
+  const data = record.key === key ? record.data : null;
+  const error = record.key === key && record.error;
   return (
     <div className="resolution-widget">
       <div>
@@ -67,7 +104,7 @@ export function SortitionResolution({
       </div>
       <p aria-live="polite">
         {error
-          ? "The record could not be reached."
+          ? "The record could not be verified."
           : !data
             ? "Reading the public record…"
             : !data.final

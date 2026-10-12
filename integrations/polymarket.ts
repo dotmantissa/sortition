@@ -1,4 +1,5 @@
 /** Imports a real venue question. Sortition does not change Polymarket's resolver. */
+import { parseSettlement, type SettlementPin } from "../lib/settlement";
 import { specificationSchema } from "../lib/validation";
 import type { Source, Specification } from "../lib/types";
 export async function importPolymarket(slug: string) {
@@ -76,12 +77,12 @@ export async function registerPolymarketQuestion({
   if (!response.ok) throw Error("Sortition registration failed");
   return response.json() as Promise<{ id: string; operation_id: string }>;
 }
-export async function consumeFinalSettlement(questionId: string) {
+export async function consumeFinalSettlement(pin: Required<SettlementPin>) {
   const response = await fetch(
-    `${process.env.SORTITION_URL}/api/questions/${encodeURIComponent(questionId)}/settlement`,
+    `${process.env.SORTITION_URL}/api/questions/${encodeURIComponent(pin.questionId)}/settlement`,
   );
   if (!response.ok) throw Error("Settlement request failed");
-  const settlement = await response.json();
+  const settlement = parseSettlement(await response.json(), pin);
   if (!settlement.final) return null;
   if (!["YES", "NO", "UNRESOLVABLE"].includes(settlement.outcome))
     throw Error("Unexpected verdict");

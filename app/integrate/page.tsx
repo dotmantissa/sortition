@@ -69,14 +69,19 @@ export default function Integrate() {
               bonded challenge window. Finalize once it expires. Your venue
               should consume only a settlement with <code>final: true</code>.
             </p>
-            <Code>{`const response = await fetch(
+            <Code>{`import { parseSettlement, settlementIdentity } from './lib/settlement';
+
+const response = await fetch(
   process.env.SORTITION_URL + '/api/questions/' + questionId + '/settlement'
 );
-const settlement = await response.json();
+const settlement = parseSettlement(await response.json(), {
+  questionId,
+  criteriaHash: lockedCriteriaHash,
+  docketAddress: registeredDocketAddress,
+  network: 'studionet',
+});
 if (settlement.final) {
-  // Apply your venue's payout or refund policy.
-  // UNRESOLVABLE is an outcome, not an exception.
-  await yourVenue.settle(settlement);
+  await yourVenue.applyOnce(settlementIdentity(settlement), settlement);
 }`}</Code>
             <p>
               An API response is an integration convenience. An external chain
@@ -95,11 +100,16 @@ if (settlement.final) {
 <SortitionResolution
   questionId={questionId}
   baseUrl={process.env.NEXT_PUBLIC_SORTITION_URL}
+  criteriaHash={lockedCriteriaHash}
+  docketAddress={registeredDocketAddress}
+  network="studionet"
   onSettled={handleFinalSettlement}
 />`}</Code>
             <p>
-              Copy the component from the repository into your React project.
-              The settlement endpoint supports public reads across origins.
+              Copy the component and its shared settlement validator into your
+              React project. Pin the record you registered, and keep financial
+              deduplication in your venue. The settlement endpoint supports
+              public reads across origins.
             </p>
           </section>
           <section className="guide-section" id="api">
@@ -152,8 +162,9 @@ if (settlement.final) {
               deliveries retry with increasing delays.
             </p>
             <p>
-              Verify the signature, reject stale timestamps, and store the event
-              ID before applying a settlement. Webhook secrets are encrypted at
+              Verify the signature over the timestamp, event ID, and exact
+              request body. Reject stale timestamps and store the settlement
+              identity before applying it. Webhook secrets are encrypted at
               rest.
             </p>
           </section>

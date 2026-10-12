@@ -81,7 +81,7 @@ export async function deliverWebhook(
   const { url, ip } = await publicDestination(raw);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = createHmac("sha256", secret)
-    .update(`${timestamp}.${payload}`)
+    .update(`${timestamp}.${eventId}.${payload}`)
     .digest("hex");
   return new Promise<void>((resolve, reject) => {
     const req = request(
