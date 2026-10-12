@@ -5,17 +5,17 @@
   "appeal_window_seconds": 900,
   "contracts": {
     "vault": {
-      "tx_hash": "0x22919366145abc930be7529666ea4eebdd63bb24a785c5db74dc6e8f3b802a60",
-      "source_hash": "6d8ba4551d1540bf54e1561dbef393c89e14b19a1cbacb19559dfa0235ecc053",
-      "address": "0x3C79b2c54c0a743E52945b58298B87d13a9142D5"
+      "tx_hash": "0xbac58aa38d8982f36ca426ac2bb05a28b7f750aeb259203ef3104e79dc528273",
+      "source_hash": "96c9fbd18e4999cf71afa600b49caf5ad177eb21ee6cbd934a403e8d6815d8d6",
+      "address": "0xCF4d1CBF0b3b536749D56ea9825a584c249f0592"
     },
     "registry": {
-      "tx_hash": "0xe179276e0763f8548a0a105e827e0a0e7f6178d453baea66cdc688851b855285",
-      "source_hash": "9e64829e4caf5f85f7b599b0003340c6368588398ca0a8244d1f31b77196fbc0",
-      "docket_source_hash": "f2759f1adcd2328e48f86f0638283558cdbe320dca93a00d51282d1403ef82fc",
-      "address": "0x1CDbCBb113D02AD369aEfb4F3eb678c01Bf66Cd0"
+      "tx_hash": "0x9445b48252db26e377d91608a9e9bae49ce71319570b1bcdb5f2648f298a8125",
+      "source_hash": "cc0f658d64a8d65fbf2255fece9d3dc31b3756de667fa67d078e0d7c4551dfe8",
+      "docket_source_hash": "a1b2b81af8a5816aa917c7b0514ca0c663ff005e9a1eb468a2f325f271b87b2b",
+      "address": "0x6E64a4154e2A8197417F9763e2652ca9ad64CA17"
     }
   },
-  "configure_tx": "0xd166ccf61b21251a97c9b38033d7001681aedc5ef3ba5d8007b9836bfb1e15e9",
+  "configure_tx": "0xaf277f8b979d597d002c8ae45b8bcd6f0ba4a51f860dd1e11a081a12d9a3ed6d",
   "configured": true
 }

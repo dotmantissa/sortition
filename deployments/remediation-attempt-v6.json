@@ -1,0 +1,45 @@
+{
+  "actors": {
+    "operator": {
+      "id": "sortition:verification:v6:operator",
+      "beneficiary": "0xC488b575a29C81A9C538eB09430e2BfF87344d2F"
+    },
+    "challenger": {
+      "id": "sortition:verification:v6:challenger",
+      "beneficiary": "0x24c2a71dDf18b53bFb45D13f24BAAb7d9B6Fb9cD"
+    },
+    "sponsor": {
+      "id": "sortition:verification:v6:sponsor",
+      "beneficiary": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53"
+    }
+  },
+  "specification": {
+    "question": "Does the IANA HTTP registry list status code 200 as OK?",
+    "criteria": "For each source independently return YES when it identifies HTTP status code 200 as OK, otherwise NO for a different final meaning, or UNKNOWN if absent. Extract the exact canonical value 200=ok for OK, 200=other for a different final meaning, or unknown if absent. Choose the earliest source line that directly supports this reading as evidence_line. The contract applies unanimity and the global uncertainty definition separately.",
+    "sources": [
+      {
+        "name": "IANA HTTP Status Code Registry",
+        "url": "https://www.iana.org/assignments/http-status-codes/http-status-codes-1.csv"
+      },
+      {
+        "name": "MDN official status 200 documentation",
+        "url": "https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/http/reference/status/200/index.md"
+      }
+    ],
+    "tie_break_url": "https://www.iana.org/assignments/http-status-codes/http-status-codes-1.csv",
+    "disagreement_rule": "unanimous",
+    "close_timestamp": 1791774220,
+    "unresolvable_definition": "If any registered source is unreachable or does not identify HTTP code 200, this question is unresolvable. Otherwise the locked unanimity rule applies to the independently extracted positions."
+  },
+  "question_id": "a058cc5c-64b5-48b6-be09-df6778b6a2cd",
+  "operations": {
+    "register": "839b8ab6-b962-430b-b43e-5fd32e81008f",
+    "fund": "e5980159-535b-4197-97b4-5287150fd98b",
+    "resolve": "74578760-d799-460f-918c-c3389a13753c"
+  },
+  "docket_address": "0x37BdC7c2c3Ac754AFa64e84A6C1b410B2e84C8E0",
+  "criteria_hash": "828ada1b7d81362f1b9eac02162f7b41b4d219d6188acae794e36e981f470f12",
+  "failed_resolution": "0d4806e0-fa73-4454-9d7d-9f80c726a83d",
+  "verified": false,
+  "note": "Factory and fee succeeded. The first resolution timed out without a ruling. A standalone synchronous finalized foreign read probe also stalled; this immutable deployment was replaced with finalized contract messages. Native appeal, settlement and payment were not verified for this case."
+}

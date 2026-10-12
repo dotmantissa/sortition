@@ -127,13 +127,14 @@ for (const kind of ["fund", "resolve", "challenge", "finalize"] as const) {
   if (kind === "finalize") {
     await waitForOperation("resolve");
     for (;;) {
-      const d = object(
-        await readFinal(
-          state.docket_address as `0x${string}`,
-          "get_settlement",
-        ),
+      const escrow = object(
+        await readFinal(addresses().vault, "get_account", [id]),
       );
-      if ((await networkClock()).unix >= Number(d.deadline) + 5) break;
+      if (
+        Number(escrow.opened_round) === Number(escrow.challenge_count) + 1 &&
+        (await networkClock()).unix >= Number(escrow.round_deadline) + 5
+      )
+        break;
       console.log("Waiting for bonded appeal window");
       await new Promise((r) => setTimeout(r, 30000));
     }
