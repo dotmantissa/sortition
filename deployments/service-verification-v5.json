@@ -1,0 +1,23 @@
+{
+  "url": "https://sortition.vercel.app",
+  "question_id": "c6df7b42-6413-47da-9e25-b8e7335bca94",
+  "verified_at": "2026-10-11T21:21:10.954Z",
+  "settlement": {
+    "question_id": "c6df7b42-6413-47da-9e25-b8e7335bca94",
+    "outcome": "YES",
+    "final": true,
+    "criteria_hash": "1b9245d3e4e9d3e88b6dd97bb207977200207888157f2d1f6eb0ee87ec628e49",
+    "docket_address": "0xaD1b70A181AD5791d59Ee467Ba09dB7df81AE987",
+    "network": "studionet",
+    "rounds": 2,
+    "proof_url": "/dockets/c6df7b42-6413-47da-9e25-b8e7335bca94"
+  },
+  "checks": [
+    "Final REST settlement and widget CORS",
+    "JSON RPC docket agrees with settlement",
+    "Unsigned operator access rejected",
+    "Hashed API key authenticates its owner",
+    "Final native credit and complete withdrawal indexed",
+    "Revoked API key rejected"
+  ]
+}
