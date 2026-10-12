@@ -170,6 +170,8 @@ test("emitted payments require successful final child receipts", () => {
     0,
   );
   assert.equal(childExecutionState([{ type: 0, status: 6 }]), "failed");
+  for (const statusName of ["LEADER_TIMEOUT", "VALIDATORS_TIMEOUT"])
+    assert.equal(childExecutionState([{ statusName }]), "failed");
   assert.equal(
     executionSucceeded({ type: 0, status: 7, txExecutionResultName: "ERROR" }),
     false,

@@ -121,7 +121,12 @@ export function childExecutionState(
   if (
     receipts.some(
       (receipt) =>
-        ["CANCELED", "UNDETERMINED"].includes(statusName(receipt)) ||
+        [
+          "CANCELED",
+          "UNDETERMINED",
+          "LEADER_TIMEOUT",
+          "VALIDATORS_TIMEOUT",
+        ].includes(statusName(receipt)) ||
         (statusName(receipt) === "FINALIZED" && !executionSucceeded(receipt)),
     )
   )
