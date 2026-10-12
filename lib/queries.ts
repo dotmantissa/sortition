@@ -15,6 +15,6 @@ export async function getQuestion(id: string) {
     await db()`SELECT tx_hash,kind,receipt FROM receipts WHERE question_id=${id} ORDER BY created_at`;
   return { ...rows[0], receipts } as Question;
 }
-export async function getOperations(id: string, owner: string) {
-  return db()`SELECT id,kind,status,tx_hash,error,created_at FROM operations WHERE question_id=${id} AND owner_id=${owner} ORDER BY created_at DESC`;
+export async function getOperations(id: string) {
+  return db()`SELECT id,kind,status,tx_hash,error,created_at FROM operations WHERE question_id=${id} ORDER BY created_at DESC`;
 }

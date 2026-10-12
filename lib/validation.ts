@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { maximumSponsoredPayment } from "./sponsor-limits";
 export const sourceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   url: z
@@ -54,7 +55,8 @@ export const registrationSchema = z
     if (
       /^\d+$/.test(s.fee) &&
       /^[1-9]\d*$/.test(s.base_bond) &&
-      (BigInt(s.fee) > 10n ** 24n || BigInt(s.base_bond) > 10n ** 24n)
+      (BigInt(s.fee) > maximumSponsoredPayment ||
+        BigInt(s.base_bond) > maximumSponsoredPayment)
     )
       c.addIssue({
         code: "custom",

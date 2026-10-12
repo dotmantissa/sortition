@@ -24,7 +24,6 @@ export async function GET(
         );
       question.operations = (await getOperations(
         id,
-        owner.id,
       )) as typeof question.operations;
     }
     return Response.json(question, {

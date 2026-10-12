@@ -44,11 +44,15 @@ export type Question = {
   created_at: string;
   docket?: { rounds: Round[] };
   escrow?: {
+    version?: number;
+    opened_round?: number;
+    round_deadline?: number;
     funded: boolean;
     settled: boolean;
     challenge_count: number;
     outcome: string;
     challenges: {
+      payer?: string;
       claimant: string;
       expected: Outcome;
       bond: string;

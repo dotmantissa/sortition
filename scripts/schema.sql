@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS operations (
   updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(owner_id,idempotency_key)
 );
 DROP INDEX IF EXISTS operation_active_question;
-CREATE UNIQUE INDEX operation_active_question ON operations(question_id) WHERE status IN ('queued','submitted','submitting','needs_review') AND kind!='protocol_appeal';
+CREATE UNIQUE INDEX operation_active_question ON operations(question_id) WHERE status IN ('queued','submitted','submitting','needs_review') AND kind NOT IN ('protocol_appeal','confirm_payment','restore_payment','open_round');
 CREATE TABLE IF NOT EXISTS receipts (
   tx_hash text PRIMARY KEY, question_id text NOT NULL REFERENCES questions(id), kind text NOT NULL, receipt jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -38,3 +38,12 @@ CREATE INDEX IF NOT EXISTS questions_created ON questions(created_at DESC);
 CREATE INDEX IF NOT EXISTS operations_status ON operations(status,created_at);
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS registry_address text;
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS vault_address text;
+ALTER TABLE operations ADD COLUMN IF NOT EXISTS next_attempt_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE operations ADD COLUMN IF NOT EXISTS poll_failures integer NOT NULL DEFAULT 0;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS next_index_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS operations_due ON operations(next_attempt_at) WHERE status IN ('queued','submitted');
+CREATE TABLE IF NOT EXISTS sponsorships (
+  operation_id uuid PRIMARY KEY REFERENCES operations(id), owner_id text NOT NULL REFERENCES operators(id),
+  amount numeric(78,0) NOT NULL CHECK(amount>=0), created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS sponsorships_created ON sponsorships(created_at);
