@@ -394,8 +394,10 @@ test("an already funded fee is rejected before any monetary transaction", async 
 });
 test("a challenge supporting the existing outcome is rejected before paying a bond", async () => {
   const h = harness({ messageHandoff: true });
-  const op = h.job("challenge");
-  op.payload.expected = "NO";
+  const op = {
+    ...h.job("challenge"),
+    payload: { claimant: "0xbeneficiary", expected: "NO" },
+  };
   await assert.rejects(
     h.exports.workerUnderTest.submit(op, "lease"),
     /open, different ruling/,
