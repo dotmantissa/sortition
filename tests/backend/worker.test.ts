@@ -172,6 +172,9 @@ function harness(
         funded: true,
         settled: false,
         challenge_count: 1,
+        ruling_round: 2,
+        ruling_outcome: "NO",
+        round_deadline: 2000,
         opened_round: options.unopened ? 1 : 2,
       };
     },
@@ -374,4 +377,23 @@ test("Studio refuses an unsafe native appeal before broadcasting", async () => {
     /paused/,
   );
   assert.ok(!h.chainCalls.some((c) => c.startsWith("appeal:")));
+});
+
+test("an already funded fee is rejected before any monetary transaction", async () => {
+  const h = harness();
+  await assert.rejects(
+    h.exports.workerUnderTest.submit(h.job("fund"), "lease"),
+    /already funded/,
+  );
+  assert.ok(!h.chainCalls.some((c) => c.startsWith("write:")));
+});
+test("a challenge supporting the existing outcome is rejected before paying a bond", async () => {
+  const h = harness({ messageHandoff: true });
+  const op = h.job("challenge");
+  op.payload.expected = "NO";
+  await assert.rejects(
+    h.exports.workerUnderTest.submit(op, "lease"),
+    /open, different ruling/,
+  );
+  assert.ok(!h.chainCalls.some((c) => c.startsWith("write:")));
 });

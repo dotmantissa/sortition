@@ -170,8 +170,23 @@ async function submit(job: Job, token: string) {
         Number(escrow.challenge_count),
       );
     }
-    if (job.kind === "fund") value = BigInt(job.fee);
+    if (job.kind === "fund") {
+      if (escrow.funded || escrow.settled)
+        throw Error("Preparation failed because this fee is already funded.");
+      value = BigInt(job.fee);
+    }
     if (job.kind === "challenge") {
+      if (escrow.settled || !escrow.funded)
+        throw Error("Preparation failed because no funded hearing is open.");
+      if (
+        Number(escrow.version) >= 3 &&
+        (job.payload.expected === escrow.ruling_outcome ||
+          Number(escrow.ruling_round) !== Number(escrow.challenge_count) + 1 ||
+          (await networkClock()).unix >= Number(escrow.round_deadline))
+      )
+        throw Error(
+          "Preparation failed because this challenge does not target an open, different ruling.",
+        );
       value =
         BigInt(escrow.base_bond as string) *
         2n ** BigInt(escrow.challenge_count as number);
