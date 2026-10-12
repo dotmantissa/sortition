@@ -1,4 +1,5 @@
 export type Outcome = "YES" | "NO" | "UNRESOLVABLE";
+export type FinalOutcome = Outcome | "REFUNDED";
 export type Source = { name: string; url: string };
 export type Specification = {
   question: string;
@@ -20,7 +21,17 @@ export type Evidence = Source & {
   value: string;
   position: string;
   digest: string;
+  /** The document window around the located quotation. */
   excerpt: string;
+  /** The verbatim passage the reading was extracted from. */
+  quote?: string;
+  quote_offset?: number;
+  status?: number;
+  retrieval?: string;
+  document_characters?: number;
+  document_is_partial?: boolean;
+  /** The document differs from the first hearing's record of this source. */
+  source_changed?: boolean;
 };
 export type Round = {
   outcome: Outcome;
@@ -28,6 +39,19 @@ export type Round = {
   resolved_at: number;
   deadline: number;
   sources: Evidence[];
+  uncertainty_applies?: boolean;
+  /** The panel this round was funded for, committed by the contract. */
+  required_validators?: number;
+  closing_timestamp?: number;
+};
+export type PanelCheck = {
+  round: number;
+  tx_hash: string | null;
+  required: number;
+  observed: number;
+  independent_validators: number;
+  leader_only: boolean;
+  verified: boolean;
 };
 export type Question = {
   registry_address?: string;
@@ -36,6 +60,7 @@ export type Question = {
   archived?: boolean;
   archive_reason?: string | null;
   credit?: string;
+  payment?: { id?: string; amount?: string; status?: string } | null;
   id: string;
   specification: Specification;
   criteria_hash: string | null;
@@ -44,11 +69,30 @@ export type Question = {
   fee: string;
   base_bond: string;
   created_at: string;
-  docket?: { rounds: Round[] };
+  indexed_at?: string;
+  index_age_seconds?: number | null;
+  stale?: boolean;
+  panel_checks?: PanelCheck[];
+  timeout_claimable?: boolean;
+  self_funded_challenge?: {
+    contract?: string;
+    function: string;
+    arguments: Record<string, string>;
+    value_wei: string;
+    round_deadline: number;
+    note: string;
+  } | null;
+  docket?: { rounds: Round[]; required_validators?: number; open_to_anyone_after?: number; relay?: string };
   escrow?: {
     version?: number;
     opened_round?: number;
     round_deadline?: number;
+    hearing_deadline?: number;
+    required_validators?: number;
+    base_bond?: string;
+    fee_payer?: string;
+    beneficiary?: string;
+    refunded?: boolean;
     funded: boolean;
     settled: boolean;
     challenge_count: number;

@@ -127,6 +127,12 @@ export function Docket({ initial }: { initial: Question }) {
     protocolAppealable(String(nativeAppeal.receipt.status));
   const nextBond =
     BigInt(q.base_bond) * 2n ** BigInt(q.escrow?.challenge_count || 0);
+  const openToAnyone =
+    time > 0 &&
+    !!q.docket?.open_to_anyone_after &&
+    time >= Number(q.docket.open_to_anyone_after);
+  const panelCheck = (round: number) =>
+    q.panel_checks?.find((check) => Number(check.round) === round) || null;
   return (
     <div className="docket-page">
       <div className="breadcrumbs">
@@ -257,6 +263,27 @@ export function Docket({ initial }: { initial: Question }) {
                   ) : (
                     <p>This hearing is preserved in the public record.</p>
                   )}
+                  {panelCheck(r.round) ? (
+                    <p>
+                      Panel funded for {panelCheck(r.round)!.required}, seated{" "}
+                      {panelCheck(r.round)!.observed} with{" "}
+                      {panelCheck(r.round)!.independent_validators} independent
+                      validator
+                      {panelCheck(r.round)!.independent_validators === 1
+                        ? ""
+                        : "s"}
+                      .{" "}
+                      {panelCheck(r.round)!.verified
+                        ? "The receipt meets the panel this round was funded for."
+                        : "The receipt does not meet the panel this round was funded for. Read it before settling anything of value."}
+                    </p>
+                  ) : r.required_validators ? (
+                    <p>
+                      This round was funded for a panel of{" "}
+                      {r.required_validators}. Its receipt has not been checked
+                      against that commitment yet.
+                    </p>
+                  ) : null}
                   <details className="receipt-details">
                     <summary>
                       <Scale size={15} /> Inspect every source reading
@@ -357,22 +384,26 @@ export function Docket({ initial }: { initial: Question }) {
           <section className="verdict-panel">
             <h2>The current verdict</h2>
             <div className="verdict-word">
-              {outcome === "YES"
-                ? "Yes."
-                : outcome === "NO"
-                  ? "No."
-                  : outcome === "UNRESOLVABLE"
-                    ? "Unresolvable."
-                    : "Awaiting a hearing."}
+              {outcome === "REFUNDED"
+                ? "Refunded."
+                : outcome === "YES"
+                  ? "Yes."
+                  : outcome === "NO"
+                    ? "No."
+                    : outcome === "UNRESOLVABLE"
+                      ? "Unresolvable."
+                      : "Awaiting a hearing."}
             </div>
             <p>
-              {outcome === "UNRESOLVABLE"
-                ? "The evidence does not meet the agreed rules. That is an answer worth keeping."
-                : q.escrow?.settled
-                  ? "The appeal window has closed and settlement is final."
-                  : latest
-                    ? "Recorded by consensus. Settlement follows when the appeal window closes."
-                    : "No verdict has been recorded."}
+              {outcome === "REFUNDED"
+                ? "The funded hearing passed its deadline without a ruling, so every fee and bond went back to the account that paid it. No verdict was adjudicated."
+                : outcome === "UNRESOLVABLE"
+                  ? "The evidence does not meet the agreed rules. That is an answer worth keeping."
+                  : q.escrow?.settled
+                    ? "The appeal window has closed and settlement is final."
+                    : latest
+                      ? "Recorded by consensus. Settlement follows when the appeal window closes."
+                      : "No verdict has been recorded."}
             </p>
           </section>
           <section>
@@ -420,10 +451,10 @@ export function Docket({ initial }: { initial: Question }) {
               <>
                 {!q.archive_reason &&
                 (pendingRehearing ||
-                  (q.can_operate &&
-                    !latest &&
+                  (!latest &&
                     time >= q.specification.close_timestamp &&
-                    q.escrow?.funded)) ? (
+                    q.escrow?.funded &&
+                    (q.can_operate || openToAnyone))) ? (
                   <button
                     className="button primary"
                     disabled={busy || active || !time}
@@ -514,10 +545,25 @@ export function Docket({ initial }: { initial: Question }) {
                     {nextBond > maximumSponsoredPayment ? (
                       <p>This bond exceeds the Studio sponsorship budget.</p>
                     ) : null}
+                    {q.self_funded_challenge ? (
+                      <details className="receipt-details">
+                        <summary>
+                          <Scale size={15} /> Post this bond from your own
+                          wallet instead
+                        </summary>
+                        <p>
+                          A sponsored bond costs you nothing, so it cannot
+                          deter a repeated dispute. Send this call yourself and
+                          the stake, and any repayment, is genuinely yours.
+                        </p>
+                        <pre>
+                          {JSON.stringify(q.self_funded_challenge, null, 2)}
+                        </pre>
+                      </details>
+                    ) : null}
                   </>
                 ) : null}
-                {q.can_operate &&
-                latest &&
+                {latest &&
                 !appealOpen &&
                 !pendingRehearing &&
                 !waitingWindow &&
@@ -530,6 +576,38 @@ export function Docket({ initial }: { initial: Question }) {
                   >
                     Finalize settlement
                   </button>
+                ) : null}
+                {q.timeout_claimable ? (
+                  <>
+                    <p>
+                      This funded hearing passed its deadline without a ruling.
+                      Anyone can release it, which refunds every fee and bond to
+                      the account that paid it.
+                    </p>
+                    <button
+                      className="button primary"
+                      disabled={busy || active || !time}
+                      onClick={() => action("claim_timeout")}
+                    >
+                      Release the hearing and refund every payer
+                    </button>
+                  </>
+                ) : null}
+                {q.payment?.status === "pending" ? (
+                  <>
+                    <p>
+                      A payment of {q.payment.amount} GEN wei is awaiting your
+                      confirmation. Confirming it unblocks your next
+                      withdrawal; you do not need the relay to do it.
+                    </p>
+                    <button
+                      className="button secondary"
+                      disabled={busy || active || !time}
+                      onClick={() => action("confirm_payment")}
+                    >
+                      Confirm I received this payment
+                    </button>
+                  </>
                 ) : null}
                 {q.escrow?.settled && q.credit && BigInt(q.credit) > 0n ? (
                   <button

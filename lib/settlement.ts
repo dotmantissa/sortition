@@ -1,11 +1,18 @@
 export type Settlement = {
   question_id: string;
-  outcome: "YES" | "NO" | "UNRESOLVABLE" | "PENDING";
+  /**
+   * REFUNDED means the funded hearing passed its deadline without a ruling and
+   * every payer was refunded. It is final, and it is not an adjudication.
+   */
+  outcome: "YES" | "NO" | "UNRESOLVABLE" | "REFUNDED" | "PENDING";
   final: boolean;
   criteria_hash: string | null;
   docket_address: string | null;
   network: string;
   rounds: number;
+  refunded?: boolean;
+  panel_verified?: boolean;
+  stale?: boolean;
 };
 export type SettlementPin = {
   questionId: string;
@@ -18,7 +25,7 @@ export function parseSettlement(raw: unknown, pin: SettlementPin): Settlement {
   const s = raw as Settlement;
   if (
     s.question_id !== pin.questionId ||
-    !["YES", "NO", "UNRESOLVABLE", "PENDING"].includes(s.outcome) ||
+    !["YES", "NO", "UNRESOLVABLE", "REFUNDED", "PENDING"].includes(s.outcome) ||
     typeof s.final !== "boolean" ||
     !Number.isSafeInteger(s.rounds) ||
     s.rounds < 0 ||
@@ -31,12 +38,15 @@ export function parseSettlement(raw: unknown, pin: SettlementPin): Settlement {
   if (
     s.final
       ? s.outcome === "PENDING" ||
-        s.rounds < 1 ||
+        // A refunded hearing is final with no completed round behind it.
+        (s.outcome !== "REFUNDED" && s.rounds < 1) ||
         !s.criteria_hash ||
         !s.docket_address
       : s.outcome !== "PENDING"
   )
     throw Error("Settlement finality is inconsistent");
+  if ((s.outcome === "REFUNDED") !== (s.refunded === true && s.final))
+    throw Error("Refund finality is inconsistent");
   if (pin.network && s.network !== pin.network)
     throw Error("Settlement network changed");
   if (

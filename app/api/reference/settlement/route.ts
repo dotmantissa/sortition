@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { decrypt, digest } from "@/lib/security";
 import { readFinal, object, type Address } from "@/lib/chain";
 import { parseSettlement } from "@/lib/settlement";
+import { panelVerified } from "@/lib/public-settlement";
 import { verifySortitionWebhook } from "@/integrations/verify-webhook";
 /** A reference consumer ledger. It cannot pay or modify positions at a venue. */
 export async function POST(req: Request) {
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "Invalid event" }, { status: 400 });
     const sql = db();
     const receivers =
-      await sql`SELECT r.*,q.vault_address FROM reference_receivers r JOIN questions q ON q.id=r.question_id WHERE r.question_id=${event.question_id}`;
+      await sql`SELECT r.*,q.vault_address,q.panel_checks,q.docket FROM reference_receivers r JOIN questions q ON q.id=r.question_id WHERE r.question_id=${event.question_id}`;
     const receiver = receivers[0];
     const eventId = req.headers.get("sortition-event-id") || "";
     if (
@@ -32,7 +33,12 @@ export async function POST(req: Request) {
     )
       return Response.json({ error: "Signature rejected" }, { status: 401 });
     const settlement = parseSettlement(
-      { ...event, final: true, rounds: event.round },
+      {
+        ...event,
+        final: true,
+        rounds: event.round,
+        refunded: event.refunded === true,
+      },
       {
         questionId: receiver.question_id,
         criteriaHash: receiver.criteria_hash,
@@ -54,8 +60,21 @@ export async function POST(req: Request) {
         { error: "Final chain state does not match" },
         { status: 409 },
       );
+    // A hearing that did not seat the panel its round was funded for is not
+    // something a venue should settle money on, even with a valid signature.
+    if (
+      settlement.outcome !== "REFUNDED" &&
+      panelVerified(
+        receiver.panel_checks,
+        receiver.docket?.rounds?.length || settlement.rounds,
+      ) === false
+    )
+      return Response.json(
+        { error: "A hearing in this docket did not seat its required panel" },
+        { status: 409 },
+      );
     const action =
-      settlement.outcome === "UNRESOLVABLE"
+      settlement.outcome === "REFUNDED" || settlement.outcome === "UNRESOLVABLE"
         ? "refund"
         : settlement.outcome === "YES"
           ? "pay_yes"

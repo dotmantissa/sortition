@@ -5,11 +5,14 @@ import {
   questionState,
   nativeAppealsEnabled,
   nativeAppealUnavailable,
+  timeoutClaimable,
+  maxBondedRounds,
 } from "./lifecycle";
 import { reserveSponsorship } from "./sponsorship";
 import {
   chain,
   panelSize,
+  panelVerification,
   networkClock,
   readFinal,
   object,
@@ -40,10 +43,31 @@ type Job = {
   registry_address: Address;
   vault_address: Address;
 };
+/** One durable settlement event per question and final round. */
+function settlementEvent(
+  id: string,
+  escrow: Record<string, unknown>,
+  criteriaHash: unknown,
+  docketAddress: string,
+) {
+  return {
+    key: `${id}:settled:${String(escrow.final_round)}`,
+    payload: {
+      type: "question.settled",
+      question_id: id,
+      outcome: escrow.outcome,
+      refunded: escrow.refunded === true,
+      criteria_hash: criteriaHash,
+      docket_address: docketAddress,
+      round: escrow.final_round,
+      network: "studionet",
+    },
+  };
+}
 async function updateQuestion(id: string) {
   const sql = db();
   const configured =
-    await sql`SELECT registry_address,vault_address FROM questions WHERE id=${id}`;
+    await sql`SELECT registry_address,vault_address,owner_id FROM questions WHERE id=${id}`;
   const a = {
     registry: configured[0].registry_address as Address,
     vault: configured[0].vault_address as Address,
@@ -55,17 +79,107 @@ async function updateQuestion(id: string) {
   const escrow = object(await readFinal(a.vault, "get_account", [id]));
   const spec = registered.specification as Specification;
   const rounds = Array.isArray(docket.rounds) ? docket.rounds : [];
-  const state = questionState(
-    escrow,
-    rounds.length,
-    spec.close_timestamp,
-    (await networkClock()).unix,
-  );
-  await sql`UPDATE questions SET criteria_hash=${registered.criteria_hash as string},docket_address=${docketAddress},docket=${JSON.stringify(docket)}::jsonb,escrow=${JSON.stringify(escrow)}::jsonb,status=${state},updated_at=now(),next_index_at=now()+interval '60 seconds' WHERE id=${id}`;
+  const now = (await networkClock()).unix;
+  const state = questionState(escrow, rounds.length, spec.close_timestamp, now);
+  const statements = [
+    sql`UPDATE questions SET criteria_hash=${registered.criteria_hash as string},docket_address=${docketAddress},docket=${JSON.stringify(docket)}::jsonb,escrow=${JSON.stringify(escrow)}::jsonb,status=${state},updated_at=now(),indexed_at=now(),next_index_at=now()+interval '60 seconds' WHERE id=${id}`,
+  ];
   if (escrow.settled) {
-    const eventKey = `${id}:settled:${String(escrow.final_round)}`;
-    await sql`INSERT INTO deliveries(id,question_id,event_key,payload) SELECT ${randomUUID()},${id},${eventKey},${JSON.stringify({ type: "question.settled", question_id: id, outcome: escrow.outcome, criteria_hash: registered.criteria_hash, docket_address: docketAddress, round: escrow.final_round, network: "studionet" })}::jsonb WHERE EXISTS(SELECT 1 FROM webhooks WHERE question_id=${id}) ON CONFLICT(event_key) DO NOTHING`;
+    // The settled status and its outbox event are written together. A crash
+    // between them used to lose the event permanently, because later idle
+    // scans skip settled questions.
+    const event = settlementEvent(id, escrow, registered.criteria_hash, docketAddress);
+    statements.push(
+      sql`INSERT INTO deliveries(id,question_id,event_key,payload) SELECT ${randomUUID()},${id},${event.key},${JSON.stringify(event.payload)}::jsonb WHERE EXISTS(SELECT 1 FROM webhooks WHERE question_id=${id}) ON CONFLICT(event_key) DO NOTHING`,
+    );
+    for (const beneficiary of participants(escrow, registered))
+      statements.push(
+        sql`INSERT INTO payment_watch(vault_address,beneficiary,question_id) VALUES(${a.vault},${beneficiary},${id}) ON CONFLICT(vault_address,beneficiary) DO NOTHING`,
+      );
   }
+  if (timeoutClaimable(escrow, now))
+    // The bounded exit is part of the service, not only of the contract.
+    statements.push(
+      sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${randomUUID()},${id},${configured[0].owner_id},'claim_timeout','{}'::jsonb,${"timeout:" + id + ":" + String(escrow.hearing_deadline)}) ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
+    );
+  await sql.transaction(statements);
+}
+/** Everyone who can hold credit in a settled escrow. */
+function participants(
+  escrow: Record<string, unknown>,
+  registered: Record<string, unknown>,
+) {
+  const addresses = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value))
+      addresses.add(value);
+  };
+  add(registered.beneficiary);
+  add(escrow.beneficiary);
+  add(escrow.fee_payer);
+  for (const challenge of Array.isArray(escrow.challenges)
+    ? escrow.challenges
+    : []) {
+    add(object(challenge).payer);
+    add(object(challenge).claimant);
+  }
+  return [...addresses];
+}
+/**
+ * Replace any settlement event lost before this repair existed, and any event
+ * whose question settled while its insert failed.
+ */
+async function repairDeliveries() {
+  const sql = db();
+  const rows =
+    await sql`SELECT q.id,q.criteria_hash,q.docket_address,q.escrow FROM questions q JOIN webhooks w ON w.question_id=q.id
+      WHERE q.escrow->>'settled'='true' AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.question_id=q.id) LIMIT 1`;
+  if (!rows[0]) return false;
+  const event = settlementEvent(
+    rows[0].id,
+    object(rows[0].escrow),
+    rows[0].criteria_hash,
+    rows[0].docket_address,
+  );
+  await sql`INSERT INTO deliveries(id,question_id,event_key,payload) VALUES(${randomUUID()},${rows[0].id},${event.key},${JSON.stringify(event.payload)}::jsonb) ON CONFLICT(event_key) DO NOTHING`;
+  return true;
+}
+/**
+ * Read contract payment state for a watched beneficiary and queue its
+ * reconciliation. This finds a pending payment from a direct contract
+ * withdrawal that this service never submitted.
+ */
+async function scanPayments() {
+  const sql = db();
+  const rows =
+    await sql`SELECT w.*,q.owner_id FROM payment_watch w JOIN questions q ON q.id=w.question_id WHERE w.next_scan_at<=now() ORDER BY w.next_scan_at LIMIT 1`;
+  if (!rows[0]) return false;
+  const watch = rows[0];
+  let payment: Record<string, unknown>;
+  try {
+    payment = object(
+      await readFinal(watch.vault_address as Address, "get_payment", [
+        watch.beneficiary,
+      ]),
+    );
+  } catch {
+    await sql`UPDATE payment_watch SET next_scan_at=now()+interval '10 minutes' WHERE vault_address=${watch.vault_address} AND beneficiary=${watch.beneficiary}`;
+    return true;
+  }
+  const status = typeof payment.status === "string" ? payment.status : "";
+  const id = typeof payment.id === "string" ? payment.id : null;
+  const retry = status === "pending" ? 120 : 21600;
+  const statements = [
+    sql`UPDATE payment_watch SET payment_id=${id},status=${status},updated_at=now(),next_scan_at=now()+(${retry}*interval '1 second') WHERE vault_address=${watch.vault_address} AND beneficiary=${watch.beneficiary}`,
+  ];
+  if (status === "pending" && id)
+    statements.push(
+      sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
+        VALUES(${randomUUID()},${watch.question_id},${watch.owner_id},'confirm_payment',${JSON.stringify({ claimant: watch.beneficiary, payment_id: id })}::jsonb,${"scanned-payment:" + watch.beneficiary + ":" + id})
+        ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
+    );
+  await sql.transaction(statements);
+  return true;
 }
 async function renewLease(token: string) {
   const renewed =
@@ -144,6 +258,12 @@ async function submit(job: Job, token: string) {
       args = [];
     }
     if (job.kind === "prepare_hearing") fn = "prepare_hearing";
+    if (job.kind === "claim_timeout") {
+      if (!timeoutClaimable(escrow, (await networkClock()).unix))
+        throw Error(
+          "Preparation failed because this funded hearing is not past its deadline without a ruling.",
+        );
+    }
     if (job.kind === "resolve" && Number(escrow.version) >= 3) {
       const docket = object(
         await readFinal(job.docket_address as Address, "get_docket"),
@@ -162,13 +282,22 @@ async function submit(job: Job, token: string) {
         await db()`UPDATE operations SET status='queued',next_attempt_at=now()+interval '30 seconds',updated_at=now() WHERE id=${job.id}`;
         return;
       }
+      // Request exactly the panel the contract committed to for this round.
+      const committed = Number(docket.required_validators || 0);
+      client.chain.defaultNumberOfInitialValidators =
+        committed > 0
+          ? Math.min(committed, 101)
+          : panelSize(
+              Math.min(Number(escrow.challenge_count), maxBondedRounds),
+            );
     }
     if (job.kind === "resolve") {
       address = job.docket_address as Address;
       args = [];
-      client.chain.defaultNumberOfInitialValidators = panelSize(
-        Number(escrow.challenge_count),
-      );
+      if (Number(escrow.version) < 3)
+        client.chain.defaultNumberOfInitialValidators = panelSize(
+          Math.min(Number(escrow.challenge_count), maxBondedRounds),
+        );
     }
     if (job.kind === "fund") {
       if (escrow.funded || escrow.settled)
@@ -257,6 +386,35 @@ async function reconcilePayment(job: Job, failed: boolean) {
     kind + ":" + job.id,
   );
 }
+/**
+ * Record the panel a completed hearing actually seated against the panel its
+ * round was funded for. The contract cannot seat validators, so this public
+ * check is what makes the committed requirement meaningful.
+ */
+async function recordPanelCheck(job: Job, receipt: ReturnType<typeof publicReceipt>) {
+  const sql = db();
+  const docket = object(
+    await readFinal(job.docket_address as Address, "get_docket"),
+  );
+  const rounds = Array.isArray(docket.rounds) ? docket.rounds : [];
+  const latest = object(rounds[rounds.length - 1]);
+  if (!rounds.length) return;
+  const check = {
+    round: Number(latest.round),
+    tx_hash: job.tx_hash,
+    ...panelVerification(receipt, Number(latest.required_validators || 0)),
+  };
+  const rows =
+    await sql`SELECT panel_checks FROM questions WHERE id=${job.question_id}`;
+  const existing = Array.isArray(rows[0]?.panel_checks)
+    ? (rows[0].panel_checks as { round: number }[])
+    : [];
+  const merged = [
+    ...existing.filter((entry) => Number(entry.round) !== check.round),
+    check,
+  ].sort((x, y) => Number(x.round) - Number(y.round));
+  await sql`UPDATE questions SET panel_checks=${JSON.stringify(merged)}::jsonb WHERE id=${job.question_id}`;
+}
 async function poll(job: Job) {
   const r = await readTransaction(job.tx_hash as TransactionHash);
   const status = statusName(r);
@@ -313,6 +471,13 @@ async function poll(job: Job) {
       } catch {
         return; /* Factory children may still be pending. Retry the same transaction next tick. */
       }
+      if (job.kind === "resolve" && job.docket_address) {
+        try {
+          await recordPanelCheck(job, publicData);
+        } catch {
+          /* The hearing stands on its receipt; the check retries next hearing. */
+        }
+      }
       if (["resolve", "protocol_appeal"].includes(job.kind)) {
         const finalizedEscrow = object(
           await readFinal(job.vault_address, "get_account", [job.question_id]),
@@ -322,6 +487,7 @@ async function poll(job: Job) {
         );
         if (
           Number(finalizedEscrow.version) >= 2 &&
+          !finalizedEscrow.settled &&
           Number(finalizedEscrow.opened_round) < Number(ruling.round)
         ) {
           await queueInternal(
@@ -373,6 +539,24 @@ async function delivery() {
     await sql`UPDATE deliveries SET attempts=attempts+1,status=CASE WHEN attempts>=9 THEN 'failed' ELSE 'pending' END,next_attempt_at=now()+(${Math.min(3600, 2 ** d.attempts * 30)}*interval '1 second') WHERE id=${d.id}`;
   }
 }
+/**
+ * Index one question whose refresh is due. `overdueSeconds` keeps indexing
+ * alive when job traffic is continuous, so sustained submissions can no longer
+ * starve unrelated updates such as a newly expired challenge window.
+ */
+async function indexDue(overdueSeconds = 0) {
+  const sql = db();
+  const q =
+    await sql`SELECT id FROM questions WHERE docket_address IS NOT NULL AND status NOT IN ('settled','refunded','archived')
+      AND next_index_at<=now()-(${overdueSeconds}*interval '1 second') ORDER BY next_index_at,updated_at LIMIT 1`;
+  if (!q[0]) return false;
+  try {
+    await updateQuestion(q[0].id);
+  } catch {
+    await sql`UPDATE questions SET next_index_at=now()+interval '120 seconds' WHERE id=${q[0].id}`;
+  }
+  return true;
+}
 export async function workerTick() {
   const sql = db(),
     token = randomUUID();
@@ -423,16 +607,15 @@ export async function workerTick() {
           await sql`UPDATE operations SET poll_failures=poll_failures+1,next_attempt_at=now()+(LEAST(300,20*power(2,LEAST(poll_failures,4)))*interval '1 second'),updated_at=now() WHERE id=${job.id} AND status='submitted'`;
         }
       }
-    } else {
-      const q =
-        await sql`SELECT id FROM questions WHERE docket_address IS NOT NULL AND status NOT IN ('settled','archived') AND next_index_at<=now() ORDER BY next_index_at,updated_at LIMIT 1`;
-      if (q[0]) {
-        try {
-          await updateQuestion(q[0].id);
-        } catch {
-          await sql`UPDATE questions SET next_index_at=now()+interval '120 seconds' WHERE id=${q[0].id}`;
-        }
+      // Continuous job traffic must not starve indexing or payment recovery.
+      try {
+        if (!(await indexDue(300))) await scanPayments();
+      } catch {
+        /* Both retry on their own schedule. */
       }
+    } else {
+      if (!(await indexDue()))
+        if (!(await scanPayments())) await repairDeliveries();
     }
     return { processed: rows[0]?.id || null };
   } finally {

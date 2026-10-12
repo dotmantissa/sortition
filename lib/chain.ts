@@ -4,15 +4,54 @@ import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { TransactionHashVariant } from "genlayer-js/types";
 import { env } from "./env";
+import { maxBondedRounds } from "./lifecycle";
 export type Address = `0x${string}`;
+export const minimumPanel = 5;
+export const panelStep = 2;
+/**
+ * The panel a round is requested with. The contract commits the same number
+ * when it authorizes the funded round, so an actual receipt can be checked
+ * against it. GenLayer does not expose the seated panel to contract code, so
+ * this is a submission parameter plus a public check, not in-VM enforcement.
+ */
 export function panelSize(challengeCount: number) {
   if (
     !Number.isInteger(challengeCount) ||
     challengeCount < 0 ||
-    challengeCount > 32
+    challengeCount > maxBondedRounds
   )
     throw new Error("Invalid challenge round");
-  return 5 + 2 * challengeCount;
+  return minimumPanel + panelStep * challengeCount;
+}
+/** Participants named in a public receipt: the leader plus every validator. */
+export function observedPanel(receipt: ReturnType<typeof publicReceipt>) {
+  const named = new Set<string>();
+  let anonymous = 0;
+  for (const member of [...receipt.leaders, ...receipt.validators]) {
+    const address = object(member).address;
+    if (typeof address === "string" && address) named.add(address.toLowerCase());
+    else anonymous += 1;
+  }
+  return named.size + anonymous;
+}
+/**
+ * Compare a hearing receipt with the panel its round was funded for. Studio
+ * supports leader only execution, so a hearing with no independent validator
+ * is reported as unverified rather than treated as consensus.
+ */
+export function panelVerification(
+  receipt: ReturnType<typeof publicReceipt>,
+  required: number,
+) {
+  const observed = observedPanel(receipt);
+  const independent = receipt.validators.length;
+  return {
+    required,
+    observed,
+    independent_validators: independent,
+    leader_only: independent === 0,
+    verified: required > 0 && observed >= required && independent > 0,
+  };
 }
 export function chain(panel = 5) {
   const client = createClient({

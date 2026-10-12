@@ -109,11 +109,20 @@ export function SortitionResolution({
             ? "Reading the public record…"
             : !data.final
               ? "Waiting for final settlement."
-              : data.outcome === "UNRESOLVABLE"
-                ? "Unresolvable. The agreed evidence did not support a verdict."
-                : data.outcome === "YES"
-                  ? "Final verdict: Yes."
-                  : "Final verdict: No."}
+              : data.outcome === "REFUNDED"
+                ? "Refunded. The funded hearing passed its deadline without a ruling, so every payer was repaid."
+                : data.outcome === "UNRESOLVABLE"
+                  ? "Unresolvable. The agreed evidence did not support a verdict."
+                  : data.outcome === "YES"
+                    ? "Final verdict: Yes."
+                    : "Final verdict: No."}
+      </p>
+      <p className="resolution-caveat">
+        {data?.final && data.panel_verified === false
+          ? "A hearing in this docket did not seat its required panel. Check the receipts before settling anything of value."
+          : data?.stale
+            ? "This record is indexed state and is currently lagging. Read the docket for the live position."
+            : null}
       </p>
       <a
         href={`${baseUrl}/dockets/${encodeURIComponent(questionId)}`}

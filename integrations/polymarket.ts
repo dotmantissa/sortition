@@ -101,11 +101,11 @@ export async function consumeFinalSettlement(pin: Required<SettlementPin>) {
   if (!response.ok) throw Error("Settlement request failed");
   const settlement = parseSettlement(await response.json(), pin);
   if (!settlement.final) return null;
-  if (!["YES", "NO", "UNRESOLVABLE"].includes(settlement.outcome))
+  if (!["YES", "NO", "UNRESOLVABLE", "REFUNDED"].includes(settlement.outcome))
     throw Error("Unexpected verdict");
   return {
     venueAction:
-      settlement.outcome === "UNRESOLVABLE"
+      settlement.outcome === "UNRESOLVABLE" || settlement.outcome === "REFUNDED"
         ? "refund"
         : settlement.outcome === "YES"
           ? "pay_yes"

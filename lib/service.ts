@@ -1,4 +1,4 @@
-import { networkClock, addresses } from "./chain";
+import { networkClock, addresses, readFinal, object, type Address } from "./chain";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
 import { HttpError } from "./auth";
@@ -6,9 +6,30 @@ import { registrationSchema, closingIsFuture } from "./validation";
 import { publicDestination, encrypt, digest } from "./security";
 import {
   fundedRehearing,
+  timeoutClaimable,
   nativeAppealsEnabled,
   nativeAppealUnavailable,
 } from "./lifecycle";
+import type { Question } from "./types";
+export const actions = [
+  "resolve",
+  "fund",
+  "challenge",
+  "finalize",
+  "withdraw",
+  "protocol_appeal",
+  "open_round",
+  "claim_timeout",
+  "confirm_payment",
+] as const;
+/**
+ * Actions the question operator alone may queue. Everything else is open to
+ * any authenticated account, so an absent or unwilling operator cannot block
+ * a hearing, a settlement or a refund.
+ */
+const operatorOnly = ["fund"];
+/** Actions that do not belong to one question's exclusive queue slot. */
+const unscoped = ["withdraw", "claim_timeout", "confirm_payment", "open_round"];
 export async function rateLimit(owner: string) {
   const rows =
     await db()`SELECT count(*)::int AS count FROM operations WHERE owner_id=${owner} AND created_at>now()-interval '1 hour'`;
@@ -75,6 +96,51 @@ export async function registerQuestion(
   ]);
   return { id, operation_id: op };
 }
+/** Accounts with a stake in a settled escrow, who may queue a withdrawal. */
+export function escrowParticipant(
+  question: {
+    owner_id?: string;
+    beneficiary?: string;
+    escrow?: { beneficiary?: string; fee_payer?: string; challenges?: { payer?: string; claimant?: string }[] } | null;
+  },
+  owner: { id: string; beneficiary: string },
+) {
+  if (question.owner_id === owner.id) return true;
+  const mine = owner.beneficiary.toLowerCase();
+  const named = [
+    question.beneficiary,
+    question.escrow?.beneficiary,
+    question.escrow?.fee_payer,
+    ...(question.escrow?.challenges || []).flatMap((c) => [c.payer, c.claimant]),
+  ];
+  return named.some(
+    (address) => typeof address === "string" && address.toLowerCase() === mine,
+  );
+}
+/**
+ * The exact vault call a challenger can send from their own wallet, so a bond
+ * can be a genuine personal stake instead of a sponsored one. The relay is not
+ * involved in a self funded challenge beyond publishing these terms.
+ */
+export function selfFundedChallenge(question: Question) {
+  const escrow = question.escrow;
+  if (!escrow || !escrow.funded || escrow.settled) return null;
+  const bond =
+    BigInt(escrow.base_bond ?? question.base_bond) *
+    2n ** BigInt(escrow.challenge_count || 0);
+  return {
+    contract: question.vault_address,
+    function: "challenge",
+    arguments: {
+      question_id: question.id,
+      claimant: "your own wallet address",
+      expected_outcome: "YES, NO or UNRESOLVABLE, different from the ruling",
+    },
+    value_wei: bond.toString(),
+    round_deadline: Number(escrow.round_deadline || 0),
+    note: "Send this from the claimant wallet itself. Bond proceeds are credited to the account that paid them.",
+  };
+}
 export async function queueAction(
   owner: { id: string; beneficiary: string },
   id: string,
@@ -82,40 +148,20 @@ export async function queueAction(
   expected: string | undefined,
   key: string,
 ) {
-  if (
-    ![
-      "resolve",
-      "fund",
-      "challenge",
-      "finalize",
-      "withdraw",
-      "protocol_appeal",
-      "open_round",
-    ].includes(action)
-  )
+  if (!(actions as readonly string[]).includes(action))
     throw new HttpError(400, "Unknown docket action.");
   if (action === "protocol_appeal" && !nativeAppealsEnabled)
     throw new HttpError(409, nativeAppealUnavailable);
   const sql = db();
   const rows =
-    await sql`SELECT owner_id,archive_reason,escrow,docket,vault_address FROM questions WHERE id=${id}`;
+    await sql`SELECT owner_id,archive_reason,escrow,docket,beneficiary,vault_address FROM questions WHERE id=${id}`;
   if (!rows[0]) throw new HttpError(404, "This question was not found.");
-  if (rows[0].archive_reason && action !== "withdraw")
+  if (rows[0].archive_reason && !["withdraw", "confirm_payment"].includes(action))
     throw new HttpError(
       409,
       "This docket is archived after a network failure. Its public receipts are preserved.",
     );
-  if (
-    action !== "challenge" &&
-    action !== "withdraw" &&
-    action !== "protocol_appeal" &&
-    action !== "open_round" &&
-    !(
-      action === "resolve" &&
-      fundedRehearing(rows[0].escrow, rows[0].docket?.rounds?.length || 0)
-    ) &&
-    rows[0].owner_id !== owner.id
-  )
+  if (operatorOnly.includes(action) && rows[0].owner_id !== owner.id)
     throw new HttpError(403, "This action belongs to the question operator.");
   if (
     action === "challenge" &&
@@ -146,6 +192,67 @@ export async function queueAction(
       409,
       "The finalized jury is opening its hearing window. Please try again shortly.",
     );
+  if (action === "resolve" && rows[0].escrow?.settled)
+    throw new HttpError(409, "This settlement is already final.");
+  if (
+    action === "resolve" &&
+    rows[0].owner_id !== owner.id &&
+    !fundedRehearing(rows[0].escrow, rows[0].docket?.rounds?.length || 0) &&
+    (rows[0].docket?.rounds?.length || 0) > 0
+  )
+    throw new HttpError(
+      409,
+      "This hearing is complete. Fund a challenge to open another round.",
+    );
+  if (
+    action === "claim_timeout" &&
+    !timeoutClaimable(rows[0].escrow, (await networkClock()).unix)
+  )
+    throw new HttpError(
+      409,
+      "This funded hearing is not past its deadline, or it already has a ruling to finalize.",
+    );
+  if (["withdraw", "confirm_payment"].includes(action)) {
+    // A withdrawal belongs to the caller's own beneficiary. Requiring real
+    // withdrawable credit stops an unrelated account queueing work against
+    // someone else's docket, and stops a pointless pending payment.
+    if (!escrowParticipant(rows[0], owner))
+      throw new HttpError(
+        403,
+        "Only an account with a stake in this docket can withdraw from it.",
+      );
+    const vault = rows[0].vault_address as Address;
+    if (action === "withdraw") {
+      let credit = 0n;
+      try {
+        credit = BigInt(
+          String(await readFinal(vault, "get_credit", [owner.beneficiary])),
+        );
+      } catch {
+        throw new HttpError(
+          503,
+          "The vault credit could not be read just now. Please try again shortly.",
+        );
+      }
+      if (credit <= 0n)
+        throw new HttpError(409, "This account has no credit to withdraw.");
+    }
+    if (action === "confirm_payment") {
+      const payment = object(
+        await readFinal(vault, "get_payment", [owner.beneficiary]),
+      );
+      if (payment.status !== "pending")
+        throw new HttpError(
+          409,
+          "This account has no pending payment to confirm.",
+        );
+      expected = undefined;
+      await rateLimit(owner.id);
+      const op = randomUUID();
+      await sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${op},${id},${owner.id},'confirm_payment',${JSON.stringify({ claimant: owner.beneficiary, payment_id: payment.id })}::jsonb,${key})`;
+      return { id: op, status: "queued" };
+    }
+  }
   await rateLimit(owner.id);
   if (
     ["fund", "challenge"].includes(action) &&
@@ -159,7 +266,12 @@ export async function queueAction(
   try {
     await sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${op},${id},${owner.id},${action},${JSON.stringify({ expected, claimant: owner.beneficiary })}::jsonb,${key})`;
   } catch {
-    throw new HttpError(409, "This docket already has an action in progress.");
+    throw new HttpError(
+      409,
+      unscoped.includes(action)
+        ? "This account already has that action in progress."
+        : "This docket already has an action in progress.",
+    );
   }
   return { id: op, status: "queued" };
 }

@@ -59,3 +59,23 @@ CREATE TABLE IF NOT EXISTS reference_settlements (
 );
 
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS archive_reason text;
+
+-- A withdrawal belongs to a beneficiary, not to a question. Keeping it in the
+-- per question exclusive slot let an unrelated account block a docket's queue.
+DROP INDEX IF EXISTS operation_active_question;
+CREATE UNIQUE INDEX operation_active_question ON operations(question_id) WHERE status IN ('queued','submitted','submitting','needs_review') AND kind NOT IN ('protocol_appeal','confirm_payment','restore_payment','open_round','prepare_hearing','withdraw','claim_timeout');
+CREATE UNIQUE INDEX IF NOT EXISTS operation_active_withdrawal ON operations((payload->>'claimant')) WHERE kind='withdraw' AND status IN ('queued','submitted','submitting','needs_review');
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS indexed_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS panel_checks jsonb NOT NULL DEFAULT '[]';
+-- Pending native payments are discovered by scanning contract state, not by
+-- looking at which operations this service happens to have recorded.
+CREATE TABLE IF NOT EXISTS payment_watch (
+  vault_address text NOT NULL, beneficiary text NOT NULL, question_id text NOT NULL REFERENCES questions(id),
+  payment_id text, status text, next_scan_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (vault_address, beneficiary)
+);
+CREATE INDEX IF NOT EXISTS payment_watch_due ON payment_watch(next_scan_at);
+
+-- A refunded hearing is a final record a consumer must be able to store.
+ALTER TABLE reference_settlements DROP CONSTRAINT IF EXISTS reference_settlements_outcome_check;
+ALTER TABLE reference_settlements ADD CONSTRAINT reference_settlements_outcome_check CHECK(outcome IN ('YES','NO','UNRESOLVABLE','REFUNDED'));

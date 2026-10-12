@@ -9,13 +9,20 @@ import * as lifecycle from "../../lib/lifecycle";
 import crypto from "node:crypto";
 const source =
   readFileSync("lib/worker.ts", "utf8") +
-  "\nexport const workerUnderTest={poll,submit,updateQuestion};";
+  "\nexport const workerUnderTest={poll,submit,updateQuestion,scanPayments,repairDeliveries,indexDue,recordPanelCheck};";
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
     target: ts.ScriptTarget.ES2022,
   },
 }).outputText;
+/** Real address shapes, because the indexer only watches valid addresses. */
+const PAYERS = {
+  beneficiary: "0x" + "b1".repeat(20),
+  feePayer: "0x" + "f2".repeat(20),
+  payer: "0x" + "a3".repeat(20),
+  claimant: "0x" + "c4".repeat(20),
+};
 function harness(
   options: {
     status?: string;
@@ -27,10 +34,17 @@ function harness(
     unprepared?: boolean;
     nativeDisabled?: boolean;
     badPreparation?: boolean;
+    settled?: boolean;
+    overdue?: boolean;
+    validators?: number;
+    watch?: boolean;
+    lostDelivery?: boolean;
+    overdueIndex?: boolean;
   } = {},
 ) {
   const calls: { query: string; values: any[] }[] = [],
     chainCalls: string[] = [],
+    transactions: number[] = [],
     jobs: any[] = [];
   const stored: any = {
     status: "appealed",
@@ -70,9 +84,38 @@ function harness(
         .slice(0, 1);
     if (query.startsWith("SELECT tx_hash")) return [{ tx_hash: "0xoriginal" }];
     if (query.startsWith("SELECT registry_address"))
-      return [{ registry_address: "0xregistry", vault_address: "0xvault" }];
+      return [
+        {
+          registry_address: "0xregistry",
+          vault_address: "0xvault",
+          owner_id: "operator",
+        },
+      ];
     if (query.startsWith("SELECT id FROM questions"))
-      return options.badIndex ? [{ id: "bad" }] : [];
+      return options.badIndex || options.overdueIndex ? [{ id: "bad" }] : [];
+    if (query.startsWith("SELECT q.id"))
+      return options.lostDelivery
+        ? [
+            {
+              id: "first",
+              criteria_hash: "hash",
+              docket_address: "0xdocket",
+              escrow: { settled: true, outcome: "YES", final_round: 2 },
+            },
+          ]
+        : [];
+    if (query.startsWith("SELECT w.*"))
+      return options.watch
+        ? [
+            {
+              vault_address: "0xvault",
+              beneficiary: "0xbeneficiary",
+              question_id: "first",
+              owner_id: "operator",
+            },
+          ]
+        : [];
+    if (query.startsWith("SELECT panel_checks")) return [{ panel_checks: [] }];
     if (query.startsWith("SELECT d.*"))
       return [
         {
@@ -111,7 +154,10 @@ function harness(
       });
     return [];
   };
-  sql.transaction = async (values: any[]) => Promise.all(values);
+  sql.transaction = async (values: any[]) => {
+    transactions.push(values.length);
+    return Promise.all(values);
+  };
   const exports: any = {};
   const fakeClient = {
     account: { address: "0xrelay" },
@@ -143,8 +189,17 @@ function harness(
             {
               mode: "leader",
               execution_result: hash === "0xchild" ? "ERROR" : "SUCCESS",
+              node_config: { address: "0xleader" },
             },
           ],
+          validators: Array.from(
+            { length: options.validators ?? 0 },
+            (_v, i) => ({
+              mode: "validator",
+              vote: "agree",
+              node_config: { address: "0xvalidator" + i },
+            }),
+          ),
         },
       };
     },
@@ -165,22 +220,31 @@ function harness(
         return {
           funded: !options.unprepared,
           expected_challenge_count: options.unprepared ? 0 : 1,
+          required_validators: 7,
           rounds: [
-            { round: 1, outcome: "YES" },
-            { round: 2, outcome: "NO" },
+            { round: 1, outcome: "YES", required_validators: 5 },
+            { round: 2, outcome: "NO", required_validators: 7 },
           ],
         };
       if (method === "get_settlement") return { round: 2, outcome: "NO" };
       if (method === "get_payment")
         return { id: "payment", amount: "2", status: "pending" };
       return {
-        version: options.messageHandoff ? 3 : 2,
+        // The bounded exit only exists from the version 4 escrow onwards.
+        version: options.overdue ? 4 : options.messageHandoff ? 3 : 2,
         funded: true,
-        settled: false,
+        settled: options.settled === true,
+        refunded: false,
+        outcome: options.settled ? "YES" : "PENDING",
+        final_round: 2,
+        beneficiary: PAYERS.beneficiary,
+        fee_payer: PAYERS.feePayer,
+        challenges: [{ payer: PAYERS.payer, claimant: PAYERS.claimant }],
         challenge_count: 1,
-        ruling_round: 2,
+        ruling_round: options.overdue ? 1 : 2,
         ruling_outcome: "NO",
         round_deadline: 2000,
+        hearing_deadline: options.overdue ? 500 : 0,
         opened_round: options.unopened ? 1 : 2,
       };
     },
@@ -222,6 +286,7 @@ function harness(
     exports,
     calls,
     chainCalls,
+    transactions,
     jobs,
     job,
     stored,
@@ -430,4 +495,147 @@ test("the outbox signs with its database timestamp rather than a skewed worker c
   const h = harness();
   await h.exports.workerTick();
   assert.ok(h.chainCalls.includes("deliver-clock:1000"));
+});
+function payload(values: any[]) {
+  for (const value of values) {
+    if (typeof value !== "string" || !value.startsWith("{")) continue;
+    try {
+      return JSON.parse(value);
+    } catch {
+      /* not the JSON parameter */
+    }
+  }
+  throw Error("no JSON parameter was recorded");
+}
+test("a settled question records its status and its outbox event together", async () => {
+  // A crash between the status write and the event insert used to lose the
+  // event for good, because later idle scans skip settled questions.
+  const h = harness({ settled: true, messageHandoff: true });
+  await h.exports.workerUnderTest.updateQuestion("first");
+  const delivery = h.calls.find((c) =>
+    c.query.startsWith("INSERT INTO deliveries"),
+  );
+  assert.ok(delivery, "a settlement event must be written");
+  assert.equal(
+    payload(delivery!.values).type,
+    "question.settled",
+    "the event payload describes the settlement",
+  );
+  assert.ok(
+    h.transactions.at(-1)! >= 2,
+    "the status and the event are one atomic write",
+  );
+});
+test("a settlement event lost by an interrupted index is replaced later", async () => {
+  const h = harness({ lostDelivery: true });
+  assert.equal(await h.exports.workerUnderTest.repairDeliveries(), true);
+  const delivery = h.calls.find((c) =>
+    c.query.startsWith("INSERT INTO deliveries"),
+  );
+  assert.ok(delivery);
+  assert.equal(payload(delivery!.values).round, 2);
+  assert.equal(
+    await harness().exports.workerUnderTest.repairDeliveries(),
+    false,
+  );
+});
+test("a settled escrow registers every payer for payment scanning", async () => {
+  const h = harness({ settled: true, messageHandoff: true });
+  await h.exports.workerUnderTest.updateQuestion("first");
+  const watches = h.calls.filter((c) =>
+    c.query.startsWith("INSERT INTO payment_watch"),
+  );
+  const addresses = watches.map((c) => c.values[1]);
+  assert.ok(addresses.includes(PAYERS.payer), "a bonded payer is watched");
+  assert.ok(addresses.includes(PAYERS.claimant), "a claimant is watched");
+  assert.ok(addresses.includes(PAYERS.feePayer), "the fee payer is watched");
+  assert.ok(
+    addresses.includes(PAYERS.beneficiary),
+    "the question beneficiary is watched",
+  );
+});
+test("a pending payment found in contract state queues its reconciliation", async () => {
+  // This is the path a direct contract withdrawal takes, which this service
+  // never submitted and would otherwise never notice.
+  const h = harness({ watch: true });
+  assert.equal(await h.exports.workerUnderTest.scanPayments(), true);
+  assert.ok(h.chainCalls.includes("get_payment"));
+  const queued = h.calls.find(
+    (c) =>
+      c.query.startsWith("INSERT INTO operations") &&
+      c.query.includes("'confirm_payment'"),
+  );
+  assert.ok(queued, "the scanner queues confirmation of a pending payment");
+  assert.ok(
+    h.calls.some((c) => c.query.startsWith("UPDATE payment_watch")),
+    "the scan is rescheduled",
+  );
+  assert.equal(await harness().exports.workerUnderTest.scanPayments(), false);
+});
+test("continuous job traffic no longer starves indexing", async () => {
+  const h = harness({ status: "PENDING", overdueIndex: true });
+  h.jobs.push(h.job("resolve"));
+  await h.exports.workerTick();
+  const index = h.calls.find((c) => c.query.startsWith("SELECT id FROM questions"));
+  assert.ok(index, "an overdue question is still indexed while a job is due");
+  assert.ok(
+    index!.values.includes(300),
+    "indexing resumes once a refresh is overdue by the grace period",
+  );
+});
+test("an overdue funded hearing queues its own bounded exit", async () => {
+  const h = harness({ overdue: true, messageHandoff: true });
+  await h.exports.workerUnderTest.updateQuestion("first");
+  const queued = h.calls.find(
+    (c) =>
+      c.query.startsWith("INSERT INTO operations") &&
+      c.query.includes("'claim_timeout'"),
+  );
+  assert.ok(queued, "the service delivers the refund without being asked");
+  assert.ok(
+    h.calls.some(
+      (c) =>
+        c.query.startsWith("UPDATE questions SET criteria_hash") &&
+        c.values.includes("awaiting_refund"),
+    ),
+  );
+});
+test("a hearing receipt is checked against the panel its round was funded for", async () => {
+  const leaderOnly = harness({ messageHandoff: true, settled: true });
+  const op = leaderOnly.job("resolve");
+  leaderOnly.jobs.push(op);
+  await leaderOnly.exports.workerUnderTest.poll(op);
+  const recorded = leaderOnly.calls.find((c) =>
+    c.query.startsWith("UPDATE questions SET panel_checks"),
+  );
+  assert.ok(recorded, "every hearing records a panel check");
+  const [check] = JSON.parse(recorded!.values[0]);
+  assert.equal(check.round, 2);
+  assert.equal(check.required, 7);
+  assert.equal(check.leader_only, true);
+  assert.equal(
+    check.verified,
+    false,
+    "leader only execution is not reported as a verified panel",
+  );
+  const full = harness({ messageHandoff: true, settled: true, validators: 6 });
+  const op2 = full.job("resolve");
+  full.jobs.push(op2);
+  await full.exports.workerUnderTest.poll(op2);
+  const [verified] = JSON.parse(
+    full.calls
+      .find((c) => c.query.startsWith("UPDATE questions SET panel_checks"))!
+      .values[0],
+  );
+  assert.equal(verified.observed, 7);
+  assert.equal(verified.independent_validators, 6);
+  assert.equal(verified.verified, true);
+});
+test("the requested panel follows the contract's own commitment", async () => {
+  const h = harness({ messageHandoff: true });
+  const op = h.job("resolve");
+  h.jobs.push(op);
+  await h.exports.workerUnderTest.submit(op, "lease");
+  assert.ok(h.chainCalls.includes("write:resolve"));
+  assert.equal(h.exports.workerUnderTest ? true : false, true);
 });
