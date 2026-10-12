@@ -1,16 +1,16 @@
 {
   "url": "https://sortition.vercel.app",
-  "question_id": "c6df7b42-6413-47da-9e25-b8e7335bca94",
-  "verified_at": "2026-10-11T21:21:10.954Z",
+  "question_id": "a1452539-47cf-4bbd-9e14-18cc0fa739ff",
+  "verified_at": "2026-10-12T08:10:55.226Z",
   "settlement": {
-    "question_id": "c6df7b42-6413-47da-9e25-b8e7335bca94",
+    "question_id": "a1452539-47cf-4bbd-9e14-18cc0fa739ff",
     "outcome": "YES",
     "final": true,
-    "criteria_hash": "1b9245d3e4e9d3e88b6dd97bb207977200207888157f2d1f6eb0ee87ec628e49",
-    "docket_address": "0xaD1b70A181AD5791d59Ee467Ba09dB7df81AE987",
+    "criteria_hash": "12cd2b254355bc62b5a3b45053c8e361758bf141dd1682caa80787dc17f20ea8",
+    "docket_address": "0x3e70DB04c7B84d7775A469A1a18C87a780bA2e3e",
     "network": "studionet",
     "rounds": 2,
-    "proof_url": "/dockets/c6df7b42-6413-47da-9e25-b8e7335bca94"
+    "proof_url": "/dockets/a1452539-47cf-4bbd-9e14-18cc0fa739ff"
   },
   "checks": [
     "Final REST settlement and widget CORS",

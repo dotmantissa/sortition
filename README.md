@@ -56,25 +56,27 @@ npm run typecheck
 npm run build
 npm run test:browser
 npm run test:live
+npm run test:remediation
+npm run test:venue
 npx tsx scripts/verify-payout.ts
 npx tsx scripts/verify-service.ts
 ```
 
 Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, missing evidence, malformed model replies, validator comparison, escalating bonds, settlement boundaries and payouts. Test fixtures are confined to the test suite.
 
-The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks the larger panel and finalizes settlement. The payout verification then checks actual native value delivery and zero remaining credit. It keeps resumable public progress in `deployments/live-test.json`.
+The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks the larger panel and finalizes settlement. The payout verification then checks actual native value delivery and zero remaining credit. It keeps resumable public progress in `deployments/live-test.json`. The remediation verifier also proves distinct sponsor accounting, signed consumer delivery, duplicate handling and rejection of altered event IDs. Its test API keys are confined to a private local file and revoked after verification. These server integration checks do not claim to verify an email inbox.
 
 ## Connect a venue
 
 Create an API key in the console and keep it on your venue's server. Send a bearer token and a unique `Idempotency-Key` with each write. See [the API guide](docs/api.md) for payloads and webhook verification.
 
-The [Polymarket adapter](integrations/polymarket.ts) imports real question data through the public Gamma API. The [worked reference](deployments/polymarket-reference.json) records a real venue question registered through the production API. It registers a separate Sortition docket for that question. It does not replace Polymarket's existing resolver. Add the remaining authoritative sources and review the imported criteria before registration.
+The [Polymarket adapter](integrations/polymarket.ts) imports real question data through the public Gamma API. The [worked reference](deployments/polymarket-consumer.json) records a real venue question, finalized uncertainty verdict and verified refund action in the signed reference consumer. One registered source lacks final score values, so the agreed uncertainty rule requires a refund. Both records come from ESPN; this example does not claim separate publishers. It registers a separate Sortition docket for that question. It does not replace Polymarket's existing resolver. Add the remaining authoritative sources and review the imported criteria before registration.
 
 Copy [SortitionResolution](components/SortitionResolution.tsx) with [the settlement validator](lib/settlement.ts) into a React application to show a final settlement and link to the full docket. Pin the criteria hash, docket address and network. The widget rejects inconsistent finality, clears the previous question immediately and avoids duplicate callbacks during its mounted lifetime. Your venue must persist its own settlement identity before applying payouts.
 
 ## Deployment
 
-A [complete Studio docket](https://sortition.vercel.app/dockets/c6df7b42-6413-47da-9e25-b8e7335bca94) records two real source readings, a bonded hearing, final settlement and a verified native payment.
+A [complete Studio docket](https://sortition.vercel.app/dockets/a1452539-47cf-4bbd-9e14-18cc0fa739ff) records two real source readings, a bonded hearing, final settlement and a verified native payment.
 
 The current Studio addresses and verified transaction hashes are in [the deployment record](deployments/studionet.json). The registry factory deploys the docket contract for every question. Earlier deployments are kept as history.
 

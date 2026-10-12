@@ -14,7 +14,9 @@
     "test:live": "tsx scripts/live-test.ts",
     "worker": "tsx scripts/worker.ts",
     "test:browser": "playwright test",
-    "format": "prettier --write app components lib scripts/*.ts integrations tests/backend tests/browser *.ts *.mjs *.json"
+    "format": "prettier --write app components lib scripts/*.ts integrations tests/backend tests/browser *.ts *.mjs *.json",
+    "test:remediation": "tsx scripts/verify-remediation.mjs",
+    "test:venue": "tsx scripts/verify-venue.mjs"
   },
   "dependencies": {
     "@farcaster/frame-sdk": "^0.0.64",

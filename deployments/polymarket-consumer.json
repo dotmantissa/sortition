@@ -1,0 +1,98 @@
+{
+  "venue": "Polymarket",
+  "market_id": "4842528",
+  "slug": "nfl-sf-sea-2026-10-11-spread-away-4pt5",
+  "question": "Spread: 49ers (-4.5)",
+  "venue_outcomes": [
+    "49ers",
+    "Seahawks"
+  ],
+  "question_id": "2ec1de6c-ab74-4e8c-89a8-4754e3e929e3",
+  "operations": {
+    "register": "c26dafb6-8f9a-49c3-a885-e58f7559a441",
+    "resolve": "98d747cf-fb61-4284-b9a6-b66ba515874a",
+    "finalize": "33e5d76b-beae-4e8f-b2d6-66438d89f4b0"
+  },
+  "criteria_hash": "ebf2962cba643ccd3b92d8d6932f47ffec5ae51a8913c2d78a3aa2d89d510e20",
+  "docket_address": "0xD40C3F354E2E9cc9854c1C5dA9BC3C183F76F07C",
+  "specification": {
+    "close_timestamp": 1791793136,
+    "criteria": "In the upcoming NFL football game between 49ers and Seahawks, scheduled for October 11 at 4:25 PM ET:\n\nThis market will resolve to \"49ers\" if the 49ers win the game by 5 or more points.\n\nOtherwise, this market will resolve to \"Seahawks\".\n\nOvertime is included if played.\n\nIf the game is postponed, this market will remain open until the game has been completed. If the game is canceled entirely, with no make-up game, this market will resolve 50-50.\n\nSortition outcome mapping: YES means \"49ers\". NO means \"Seahawks\". A split payout or unresolved event is UNRESOLVABLE. Extract a canonical value in the form result=<winning outcome in lowercase> for a final result, or result=unknown otherwise.",
+    "disagreement_rule": "unanimous",
+    "question": "Spread: 49ers (-4.5)",
+    "sources": [
+      {
+        "name": "ESPN final game scoreboard",
+        "url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard/401872992"
+      },
+      {
+        "name": "ESPN core competition record",
+        "url": "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/401872992/competitions/401872992?lang=en&region=us"
+      }
+    ],
+    "tie_break_url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard/401872992",
+    "unresolvable_definition": "UNRESOLVABLE if any registered source does not itself include the completed final game status, both team identities and their numeric final scores. Never follow references to unregistered URLs. A source containing only score reference links cannot supply this evidence.",
+    "venue": {
+      "market_id": "4842528",
+      "name": "Polymarket",
+      "url": "https://polymarket.com/event/nfl-sf-sea-2026-10-11-spread-away-4pt5"
+    }
+  },
+  "ruling": {
+    "deadline": 1791794048,
+    "outcome": "UNRESOLVABLE",
+    "resolved_at": 1791793148,
+    "round": 1,
+    "sources": [
+      {
+        "digest": "6d3ca6facbfdad5d5257af20a2685bc4913202f76a063f9319efb6ddd2f63319",
+        "excerpt": "{\"id\":\"401872992\",\"uid\":\"s:20~l:28~e:401872992\",\"date\":\"2026-10-11T20:25Z\",\"name\":\"San Francisco 49ers at Seattle Seahawks\",\"shortName\":\"SF @ SEA\",\"season\":{\"year\":2026,\"type\":2,\"slug\":\"regular-season\"},\"week\":{\"number\":5},\"competitions\":[{\"id\":\"401872992\",\"uid\":\"s:20~l:28~e:401872992~c:401872992\",\"",
+        "name": "ESPN final game scoreboard",
+        "position": "NO",
+        "reachable": true,
+        "url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard/401872992",
+        "value": "result=seahawks"
+      },
+      {
+        "digest": "0c91b5f1566d3853657c1d42077dbf298588455f81f3bf0322b441866f2f3912",
+        "excerpt": "",
+        "name": "ESPN core competition record",
+        "position": "UNKNOWN",
+        "reachable": true,
+        "url": "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/401872992/competitions/401872992?lang=en&region=us",
+        "value": "result=unknown"
+      }
+    ],
+    "uncertainty_applies": false
+  },
+  "note": "Two real ESPN data endpoints are registered. The core record supplies score references rather than final score values. The locked uncertainty rule therefore requires UNRESOLVABLE. This proves the independent reference consumer refund path; it does not alter Polymarket settlement and does not claim independent publishers.",
+  "deadline": 1791794130,
+  "consumer": {
+    "venueAction": "refund",
+    "settlement": {
+      "question_id": "2ec1de6c-ab74-4e8c-89a8-4754e3e929e3",
+      "outcome": "UNRESOLVABLE",
+      "final": true,
+      "criteria_hash": "ebf2962cba643ccd3b92d8d6932f47ffec5ae51a8913c2d78a3aa2d89d510e20",
+      "docket_address": "0xD40C3F354E2E9cc9854c1C5dA9BC3C183F76F07C",
+      "network": "studionet",
+      "rounds": 1,
+      "proof_url": "/dockets/2ec1de6c-ab74-4e8c-89a8-4754e3e929e3"
+    }
+  },
+  "signed_consumer": {
+    "question_id": "2ec1de6c-ab74-4e8c-89a8-4754e3e929e3",
+    "event_id": "43b65d02-09af-4b67-9094-d07f288d5a82",
+    "outcome": "UNRESOLVABLE",
+    "action": "refund",
+    "body_hash": "98a7e31c7f76ffdb31d426b87e4b6eb713b66f6accf1b1e1f49126c9bbfe302e",
+    "received_at": "2026-10-12T08:59:57.019Z",
+    "venue": "Polymarket",
+    "market_id": "4842528",
+    "criteria_hash": "ebf2962cba643ccd3b92d8d6932f47ffec5ae51a8913c2d78a3aa2d89d510e20",
+    "docket_address": "0xD40C3F354E2E9cc9854c1C5dA9BC3C183F76F07C",
+    "network": "studionet"
+  },
+  "verified": true,
+  "verified_at": "2026-10-12T08:03:19.559Z"
+}

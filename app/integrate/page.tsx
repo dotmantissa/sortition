@@ -181,6 +181,18 @@ if (settlement.final) {
               reference adapter registers a separate Sortition docket for a real
               venue question and consumes its result in your own integration.
             </p>
+            <p>
+              The worked reference reaches unresolvable because a registered
+              source lacks final score values. The signed reference consumer
+              records a refund. A missing fact is no invitation to pick a
+              winner.
+            </p>
+            <Link
+              className="quiet-link"
+              href="/dockets/2ec1de6c-ab74-4e8c-89a8-4754e3e929e3"
+            >
+              Read the worked docket <ExternalLink size={14} />
+            </Link>
             <a
               className="quiet-link"
               style={{ marginTop: 18 }}
