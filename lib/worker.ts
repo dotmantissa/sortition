@@ -131,6 +131,31 @@ async function submit(job: Job, token: string) {
     let fn = job.kind;
     let args: (string | number | bigint)[] = [job.question_id];
     let value = 0n;
+    if (job.kind === "open_round" && Number(escrow.version) >= 3) {
+      address = job.docket_address as Address;
+      fn = "publish_ruling";
+      args = [];
+    }
+    if (job.kind === "prepare_hearing") fn = "prepare_hearing";
+    if (job.kind === "resolve" && Number(escrow.version) >= 3) {
+      const docket = object(
+        await readFinal(job.docket_address as Address, "get_docket"),
+      );
+      if (
+        !docket.funded ||
+        Number(docket.expected_challenge_count) !==
+          Number(escrow.challenge_count)
+      ) {
+        await queueInternal(
+          job,
+          "prepare_hearing",
+          {},
+          "prepare-hearing:" + job.id,
+        );
+        await db()`UPDATE operations SET status='queued',next_attempt_at=now()+interval '30 seconds',updated_at=now() WHERE id=${job.id}`;
+        return;
+      }
+    }
     if (job.kind === "resolve") {
       address = job.docket_address as Address;
       args = [];
@@ -244,7 +269,15 @@ async function poll(job: Job) {
       const childState = childExecutionState(childReceipts);
       if (childState === "failed") {
         if (job.kind === "withdraw") await reconcilePayment(job, true);
-        await db()`UPDATE operations SET status='failed',error='An emitted transaction failed. A funded recovery is queued when the vault has a pending payment record.',updated_at=now() WHERE id=${job.id}`;
+        await db()`UPDATE operations SET status='failed',error='An emitted transaction failed. Retry the funded hearing or window without paying again. Pending native payments receive backed recovery.',updated_at=now() WHERE id=${job.id}`;
+        if (job.kind === "challenge") {
+          await queueInternal(
+            job,
+            "resolve",
+            {},
+            "bonded-resolution:" + job.id,
+          );
+        }
         return;
       }
       if (

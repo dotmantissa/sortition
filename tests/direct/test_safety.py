@@ -63,25 +63,23 @@ def test_payment_delivery_confirmation_keeps_auditable_record(vault, direct_vm, 
     assert c.get_credit(address(direct_alice)) == '0'
 
 
-def test_settlement_reads_only_final_foreign_state(vault, direct_vm, monkeypatch):
-    c, _ = vault
-    import genlayer
-    from genlayer.py.public_abi import StorageType
-    calls = []
-    class Docket:
-        def view(self, **kwargs):
-            calls.append(kwargs)
-            assert kwargs['state'] == StorageType.LATEST_FINAL
-            return self
-        def get_settlement(self):
-            return {'outcome':'NO', 'round':1, 'deadline':1830297660}
-    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Docket())
+def test_only_registered_docket_can_publish_matching_bound_ruling(vault, direct_vm, direct_alice, direct_bob):
+    c, state = vault
     direct_vm.value = 10
     c.fund('q1')
-    c.open_round('q1')
-    warp(direct_vm, '2028-01-01T00:02:00Z')
-    c.finalize('q1')
-    assert calls and c.get_account('q1')['outcome'] == 'NO'
+    direct_vm.value = 0
+    with direct_vm.expect_revert('registered docket'):
+        c.record_ruling('q1', 'YES', 1, 'a'*64)
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert('registered docket'):
+        c.record_ruling('q1', 'YES', 1, 'b'*64)
+    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    deadline = c.get_account('q1')['round_deadline']
+    warp(direct_vm, '2028-01-01T00:00:30Z')
+    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    assert c.get_account('q1')['round_deadline'] == deadline
+    with direct_vm.expect_revert('new funded ruling'):
+        c.record_ruling('q1', 'NO', 2, 'a'*64)
 
 
 def test_resolution_rejects_direct_caller_bypassing_relay(docket, direct_vm, direct_bob):
@@ -123,8 +121,11 @@ def test_global_missing_source_exception_overrides_majority(direct_vm, direct_de
     spec['unresolvable_definition'] = 'If any source cannot be reached this market is unresolvable.'
     canonical = json.dumps(spec, sort_keys=True, separators=(',',':'))
     c = direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), address(direct_alice), 'q', 60, address(direct_alice))
+    c.prepare_round(0)
     import genlayer
     class Vault:
+        def emit(self, **kwargs):return self
+        def record_ruling(self, *args):pass
         def view(self, **kwargs):return self
         def get_account(self, key):return {'funded':True,'settled':False,'challenge_count':0}
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Vault())
@@ -149,8 +150,64 @@ def test_challenge_window_begins_after_finalized_ruling_is_observed(vault, direc
     assert c.get_account('q1')['round_deadline'] == state['deadline'] + 120
     with direct_vm.expect_revert('expired'):
         c.finalize('q1')
-    with direct_vm.expect_revert('new finalized ruling'):
-        c.open_round('q1')
+    deadline = c.get_account('q1')['round_deadline']
+    c.open_round('q1')
+    assert c.get_account('q1')['round_deadline'] == deadline
     warp(direct_vm, '2028-01-01T00:03:00Z')
     c.finalize('q1')
     assert c.get_account('q1')['settled']
+
+
+def test_resolved_outcome_is_emitted_only_after_finalization(docket, direct_vm, monkeypatch):
+    import genlayer
+    messages = []
+    class Vault:
+        def emit(self, **kwargs):
+            assert kwargs['on'] == 'finalized'
+            return self
+        def record_ruling(self, *args):messages.append(args)
+    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Vault())
+    direct_vm.mock_web('.*', {'status':200,'body':'The final rate is 6 percent.'})
+    direct_vm.mock_llm('.*Extract evidence.*', json.dumps({'position':'YES','value':'6 percent','evidence_line':1}))
+    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable':False}))
+    docket.resolve()
+    assert messages == [('q1','YES',1,docket.get_docket()['criteria_hash'])]
+
+
+def test_hearing_repair_replays_finalized_funding_without_changing_escrow(vault,direct_vm,monkeypatch):
+    import genlayer
+    c, state = vault
+    with direct_vm.expect_revert('funded hearing'):
+        c.prepare_hearing('q1')
+    direct_vm.value = 10
+    c.fund('q1')
+    before = c.get_account('q1')
+    emitted = []
+    class Docket:
+        def emit(self, **kwargs):
+            assert kwargs['on'] == 'finalized'
+            return self
+        def prepare_round(self, count): emitted.append(count)
+    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Docket())
+    direct_vm.value = 0
+    c.prepare_hearing('q1')
+    assert emitted == [0]
+    assert c.get_account('q1') == before
+
+
+def test_funding_challenge_and_settlement_emit_authenticated_finalized_messages(vault,direct_vm,direct_bob,monkeypatch):
+    import genlayer
+    c, state = vault
+    emitted = []
+    class Docket:
+        def emit(self, **kwargs):
+            assert kwargs['on'] == 'finalized'
+            return self
+        def prepare_round(self, count): emitted.append(('prepare',count))
+        def close_settlement(self): emitted.append(('close',))
+    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Docket())
+    direct_vm.value = 10; c.fund('q1'); c.open_round('q1')
+    direct_vm.value = 2; c.challenge('q1',address(direct_bob),'NO')
+    state['round'] = 2; c.open_round('q1')
+    warp(direct_vm,'2028-01-01T00:02:00Z'); direct_vm.value = 0; c.finalize('q1')
+    assert emitted == [('prepare',0),('prepare',1),('close',)]

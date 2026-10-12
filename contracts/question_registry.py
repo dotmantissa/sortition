@@ -52,9 +52,9 @@ class QuestionRegistry(gl.Contract):
         canonical = json.dumps(spec, sort_keys=True, separators=(',', ':'))
         criteria_hash = hashlib.sha256(canonical.encode()).hexdigest()
         addr = gl.deploy_contract(code=self.docket_code.encode(), args=[canonical, criteria_hash, str(self.vault), question_id, int(self.appeal_window), str(self.owner)], salt_nonce=u256(len(self.question_ids) + 1), on='finalized')
-        self.questions[question_id] = json.dumps({'version': 2, 'id': question_id, 'docket_address': str(addr), 'criteria_hash': criteria_hash, 'specification': spec, 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond)})
+        self.questions[question_id] = json.dumps({'version': 3, 'id': question_id, 'docket_address': str(addr), 'criteria_hash': criteria_hash, 'specification': spec, 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond)})
         self.question_ids.append(question_id)
-        gl.get_contract_at(self.vault).emit(on='finalized').bind(question_id, str(addr), beneficiary, fee, base_bond, int(self.appeal_window))
+        gl.get_contract_at(self.vault).emit(on='finalized').bind(question_id, str(addr), beneficiary, fee, base_bond, int(self.appeal_window), criteria_hash)
         return criteria_hash
 
     @gl.public.view

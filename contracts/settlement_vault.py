@@ -2,7 +2,6 @@
 from genlayer import *
 import json
 from datetime import datetime
-from genlayer.py.public_abi import StorageType
 
 
 @gl.evm.contract_interface
@@ -37,12 +36,14 @@ class SettlementVault(gl.Contract):
         self.configured = True
 
     @gl.public.write
-    def bind(self, question_id: str, docket: str, beneficiary: str, fee: int, base_bond: int, appeal_window: int) -> None:
+    def bind(self, question_id: str, docket: str, beneficiary: str, fee: int, base_bond: int, appeal_window: int, criteria_hash: str) -> None:
         if not self.configured or gl.message.sender_address != self.registry:
             raise gl.vm.UserError('Only registry can bind a docket')
         if question_id in self.accounts or fee < 0 or base_bond <= 0 or not 60 <= appeal_window <= 604800:
             raise gl.vm.UserError('Invalid escrow terms')
-        self.accounts[question_id] = json.dumps({'version': 2, 'docket': str(Address(docket)), 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'funded': fee == 0, 'settled': False, 'challenge_count': 0, 'opened_round': 0, 'round_deadline': 0, 'appeal_window': appeal_window, 'challenges': [], 'outcome': 'PENDING'})
+        self.accounts[question_id] = json.dumps({'version': 3, 'docket': str(Address(docket)), 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'funded': fee == 0, 'settled': False, 'challenge_count': 0, 'opened_round': 0, 'round_deadline': 0, 'appeal_window': appeal_window, 'criteria_hash': criteria_hash, 'ruling_round': 0, 'ruling_outcome': 'PENDING', 'challenges': [], 'outcome': 'PENDING'})
+        if fee == 0:
+            gl.get_contract_at(Address(docket)).emit(on='finalized').prepare_round(0)
 
     @gl.public.view
     def get_account(self, question_id: str) -> dict:
@@ -57,15 +58,30 @@ class SettlementVault(gl.Contract):
             raise gl.vm.UserError('Send the exact unfunded resolution fee')
         a['funded'] = True
         self.accounts[question_id] = json.dumps(a)
+        gl.get_contract_at(Address(a['docket'])).emit(on='finalized').prepare_round(0)
 
     @gl.public.write
-    def open_round(self, question_id: str) -> None:
+    def prepare_hearing(self, question_id: str) -> None:
+        # Replay finalized funding after a failed asynchronous delivery. This
+        # never transfers value or changes the escrow or its challenge count.
         a = self.get_account(question_id)
-        state = gl.get_contract_at(Address(a['docket'])).view(state=StorageType.LATEST_FINAL).get_settlement()
-        if a['settled'] or not a['funded'] or not state['round'] or state['round'] != a['challenge_count'] + 1 or a['opened_round'] >= state['round']:
-            raise gl.vm.UserError('A new finalized ruling is required to open its window')
+        if not a['funded'] or a['settled']:
+            raise gl.vm.UserError('An unsettled funded hearing is required')
+        gl.get_contract_at(Address(a['docket'])).emit(on='finalized').prepare_round(a['challenge_count'])
+
+    @gl.public.write
+    def record_ruling(self, question_id: str, outcome: str, round_number: int, criteria_hash: str) -> None:
+        a = self.get_account(question_id)
+        if gl.message.sender_address != Address(a['docket']) or criteria_hash != a['criteria_hash']:
+            raise gl.vm.UserError('Only the registered docket can publish its finalized ruling')
+        if outcome not in ('YES', 'NO', 'UNRESOLVABLE'):
+            raise gl.vm.UserError('Invalid outcome')
+        if round_number == a['ruling_round'] and outcome == a['ruling_outcome']:
+            return
+        if a['settled'] or not a['funded'] or round_number != a['challenge_count'] + 1 or round_number <= a['ruling_round']:
+            raise gl.vm.UserError('A new funded ruling is required')
         timestamp = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
-        a.update(opened_round=state['round'], round_deadline=timestamp + a['appeal_window'])
+        a.update(ruling_round=round_number, ruling_outcome=outcome, opened_round=round_number, round_deadline=timestamp + a['appeal_window'])
         self.accounts[question_id] = json.dumps(a)
 
     @gl.public.write.payable
@@ -73,7 +89,7 @@ class SettlementVault(gl.Contract):
         if gl.message.sender_address not in (self.owner, Address(claimant)):
             raise gl.vm.UserError('Only claimant or operator relay can fund a challenge')
         a = self.get_account(question_id)
-        state = gl.get_contract_at(Address(a['docket'])).view(state=StorageType.LATEST_FINAL).get_settlement()
+        state = {'round': a['ruling_round'], 'outcome': a['ruling_outcome']}
         timestamp = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
         required = int(a['base_bond']) * 2 ** a['challenge_count']
         if a['settled'] or not a['funded'] or state['round'] != a['challenge_count'] + 1 or a['opened_round'] != state['round'] or timestamp >= a['round_deadline']:
@@ -88,13 +104,13 @@ class SettlementVault(gl.Contract):
         a['challenges'].append({'claimant': str(Address(claimant)), 'payer': str(gl.message.sender_address), 'expected': expected_outcome, 'bond': str(required), 'round': state['round']})
         a['challenge_count'] += 1
         self.accounts[question_id] = json.dumps(a)
-        # The relay observes this finalized bond and requests a larger random panel.
-        # Resolution can also be retried permissionlessly if the relay is unavailable.
+        gl.get_contract_at(Address(a['docket'])).emit(on='finalized').prepare_round(a['challenge_count'])
+        # The relay requests a larger random panel after this funding message finishes.
 
     @gl.public.write
     def finalize(self, question_id: str) -> None:
         a = self.get_account(question_id)
-        state = gl.get_contract_at(Address(a['docket'])).view(state=StorageType.LATEST_FINAL).get_settlement()
+        state = {'round': a['ruling_round'], 'outcome': a['ruling_outcome']}
         timestamp = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
         if a['settled'] or not a['funded'] or state['round'] != a['challenge_count'] + 1 or a['opened_round'] != state['round'] or timestamp < a['round_deadline']:
             raise gl.vm.UserError('A completed round and expired appeal window are required')
@@ -114,6 +130,7 @@ class SettlementVault(gl.Contract):
         self.credits[self.treasury] = self.credits.get(self.treasury, u256(0)) + u256(int(a['fee']))
         a.update(settled=True, outcome=state['outcome'], final_round=state['round'])
         self.accounts[question_id] = json.dumps(a)
+        gl.get_contract_at(Address(a['docket'])).emit(on='finalized').close_settlement()
 
     @gl.public.write
     def withdraw(self, beneficiary: str) -> None:

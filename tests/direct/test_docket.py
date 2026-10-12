@@ -96,8 +96,11 @@ def test_registered_disagreement_policies(direct_vm,direct_deploy,direct_alice,s
     spec['disagreement_rule']=policy
     canonical=json.dumps(spec,sort_keys=True,separators=(',',':'))
     c=direct_deploy('contracts/sortition_docket.py',canonical,hashlib.sha256(canonical.encode()).hexdigest(),address(direct_alice),'q',60,address(direct_alice))
+    c.prepare_round(0)
     import genlayer
     class Vault:
+        def emit(self, **kwargs): return self
+        def record_ruling(self, *args): pass
         def view(self, **kwargs):return self
         def get_account(self,key):return {'funded':True,'settled':False,'challenge_count':0}
     monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Vault())
@@ -108,11 +111,15 @@ def test_registered_disagreement_policies(direct_vm,direct_deploy,direct_alice,s
     c.resolve()
     assert c.get_settlement()['outcome']==expected
 
-@pytest.mark.parametrize('account,message',[({'funded':False,'settled':False,'challenge_count':0},'not funded'),({'funded':True,'settled':True,'challenge_count':0},'final')])
-def test_escrow_gates_resolution(docket,direct_vm,monkeypatch,account,message):
-    import genlayer
-    class Vault:
-        def view(self, **kwargs):return self
-        def get_account(self,key):return account
-    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Vault())
-    with direct_vm.expect_revert(message):docket.resolve()
+def test_only_finalized_vault_messages_prepare_and_close_a_hearing(docket, direct_vm, direct_bob):
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert('Only vault'):
+        docket.prepare_round(1)
+    with direct_vm.expect_revert('Only vault'):
+        docket.close_settlement()
+
+
+def test_settled_docket_rejects_further_resolution(docket, direct_vm):
+    docket.close_settlement()
+    with direct_vm.expect_revert('final'):
+        docket.resolve()

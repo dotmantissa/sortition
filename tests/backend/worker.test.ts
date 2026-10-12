@@ -23,6 +23,8 @@ function harness(
     childFailed?: boolean;
     unopened?: boolean;
     expiredLease?: boolean;
+    messageHandoff?: boolean;
+    unprepared?: boolean;
   } = {},
 ) {
   const calls: { query: string; values: any[] }[] = [],
@@ -154,6 +156,8 @@ function harness(
         };
       if (method === "get_docket")
         return {
+          funded: !options.unprepared,
+          expected_challenge_count: options.unprepared ? 0 : 1,
           rounds: [
             { round: 1, outcome: "YES" },
             { round: 2, outcome: "NO" },
@@ -163,7 +167,7 @@ function harness(
       if (method === "get_payment")
         return { id: "payment", amount: "2", status: "pending" };
       return {
-        version: 2,
+        version: options.messageHandoff ? 3 : 2,
         funded: true,
         settled: false,
         challenge_count: 1,
@@ -320,5 +324,44 @@ test("funded failed rehearing remains a pending hearing rather than a resolved c
       1,
     ),
     true,
+  );
+});
+
+test("a missing finalized funding message postpones resolution and queues a value free repair", async () => {
+  const h = harness({ messageHandoff: true, unprepared: true });
+  const op = { ...h.job("resolve"), status: "queued" };
+  await h.exports.workerUnderTest.submit(op, "lease");
+  assert.ok(
+    h.calls.some(
+      (c) =>
+        c.query.startsWith("INSERT INTO operations") &&
+        c.values.includes("prepare_hearing"),
+    ),
+  );
+  assert.ok(
+    h.calls.some((c) =>
+      c.query.startsWith("UPDATE operations SET status='queued'"),
+    ),
+  );
+  assert.ok(!h.chainCalls.some((c) => c.startsWith("write:")));
+});
+test("a missing finalized ruling message is repaired by publishing stored docket output", async () => {
+  const h = harness({ messageHandoff: true });
+  await h.exports.workerUnderTest.submit(h.job("open_round"), "lease");
+  assert.ok(h.chainCalls.includes("write:publish_ruling"));
+  assert.ok(!h.chainCalls.includes("write:open_round"));
+});
+test("a failed challenge callback still queues recovery of its paid hearing", async () => {
+  const h = harness({ messageHandoff: true, childFailed: true });
+  const op = h.job("challenge");
+  h.jobs.push(op);
+  await h.exports.workerUnderTest.poll(op);
+  assert.equal(op.status, "failed");
+  assert.ok(
+    h.calls.some(
+      (c) =>
+        c.query.startsWith("INSERT INTO operations") &&
+        c.values.includes("resolve"),
+    ),
   );
 });

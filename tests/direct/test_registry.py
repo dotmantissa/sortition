@@ -74,5 +74,5 @@ def test_factory_binds_the_locked_docket_with_distinct_salts(registry, spec, dir
         assert args[3]==key
         assert args[5].lower()==address(direct_alice).lower()
         assert isinstance(deployments[-1]['code'],bytes)
-        assert bindings[-1]==(key,str(genlayer.Address(address(direct_bob))),address(direct_alice),10,2,60)
+        assert bindings[-1]==(key,str(genlayer.Address(address(direct_bob))),address(direct_alice),10,2,60,fingerprint)
     assert int(deployments[0]['salt_nonce'])!=int(deployments[1]['salt_nonce'])

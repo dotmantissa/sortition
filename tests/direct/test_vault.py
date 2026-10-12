@@ -23,7 +23,7 @@ def test_one_time_config_and_bind_auth(vault, direct_vm, direct_bob):
         c.configure(address(direct_bob))
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert('Only registry'):
-        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1, 60)
+        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1, 60, 'a'*64)
 
 def test_bonds_escalate_and_winner_paid(vault, direct_vm, direct_bob):
     c, state = vault
@@ -102,10 +102,10 @@ def test_unauthorized_withdraw(vault,direct_vm,direct_charlie,direct_bob):
 
 def test_zero_fee_binding_is_funded(vault,direct_vm,direct_alice,direct_bob):
     c,_=vault
-    c.bind('q2',address(direct_bob),address(direct_bob),0,1,60)
+    c.bind('q2',address(direct_bob),address(direct_bob),0,1,60,'a'*64)
     assert c.get_account('q2')['funded']
     with direct_vm.expect_revert('Invalid escrow'):
-        c.bind('q2',address(direct_bob),address(direct_bob),0,1,60)
+        c.bind('q2',address(direct_bob),address(direct_bob),0,1,60,'a'*64)
     with direct_vm.expect_revert('not found'):
         c.get_account('missing')
 
@@ -152,7 +152,7 @@ def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm
     def capture(message, decoder):
         emitted.append(message)
         return Completed()
-    monkeypatch.setattr(sys.modules[c.__class__.__module__],'NativeRecipient',state['recipient_interface'])
+    monkeypatch.setattr(state['contract_module'],'NativeRecipient',state['recipient_interface'])
     monkeypatch.setattr(calls,'gl_call_generic',capture)
     c.withdraw(address(direct_alice))
     assert len(emitted)==1

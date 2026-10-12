@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS operations (
   updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(owner_id,idempotency_key)
 );
 DROP INDEX IF EXISTS operation_active_question;
-CREATE UNIQUE INDEX operation_active_question ON operations(question_id) WHERE status IN ('queued','submitted','submitting','needs_review') AND kind NOT IN ('protocol_appeal','confirm_payment','restore_payment','open_round');
+CREATE UNIQUE INDEX operation_active_question ON operations(question_id) WHERE status IN ('queued','submitted','submitting','needs_review') AND kind NOT IN ('protocol_appeal','confirm_payment','restore_payment','open_round','prepare_hearing');
 CREATE TABLE IF NOT EXISTS receipts (
   tx_hash text PRIMARY KEY, question_id text NOT NULL REFERENCES questions(id), kind text NOT NULL, receipt jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()

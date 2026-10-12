@@ -3,7 +3,6 @@ from genlayer import *
 import json
 import hashlib
 from datetime import datetime
-from genlayer.py.public_abi import StorageType
 
 
 def now() -> int:
@@ -23,6 +22,9 @@ class SortitionDocket(gl.Contract):
     rounds: DynArray[str]
     appeal_window: u256
     relay: Address
+    funded: bool
+    expected_challenge_count: u256
+    settled: bool
 
     def __init__(self, specification: str, criteria_hash: str, vault: str, question_id: str, appeal_window: int, relay: str):
         if hashlib.sha256(specification.encode()).hexdigest() != criteria_hash:
@@ -33,10 +35,13 @@ class SortitionDocket(gl.Contract):
         self.question_id = question_id
         self.appeal_window = u256(appeal_window)
         self.relay = Address(relay)
+        self.funded = False
+        self.expected_challenge_count = u256(0)
+        self.settled = False
 
     @gl.public.view
     def get_docket(self) -> dict:
-        return {'id': self.question_id, 'criteria_hash': self.criteria_hash, 'specification': json.loads(self.specification), 'rounds': [json.loads(r) for r in self.rounds], 'address': str(gl.message.contract_address)}
+        return {'id': self.question_id, 'criteria_hash': self.criteria_hash, 'specification': json.loads(self.specification), 'rounds': [json.loads(r) for r in self.rounds], 'address': str(gl.message.contract_address), 'funded': self.funded, 'expected_challenge_count': int(self.expected_challenge_count), 'settled': self.settled}
 
     @gl.public.view
     def get_settlement(self) -> dict:
@@ -52,12 +57,11 @@ class SortitionDocket(gl.Contract):
         spec = json.loads(self.specification)
         if now() < spec['close_timestamp']:
             raise gl.vm.UserError('Question is still open')
-        account = gl.get_contract_at(self.vault).view(state=StorageType.LATEST_FINAL).get_account(self.question_id)
-        if not account['funded']:
+        if not self.funded:
             raise gl.vm.UserError('Resolution fee is not funded')
-        if account['settled']:
+        if self.settled:
             raise gl.vm.UserError('Settlement is final')
-        if len(self.rounds) != account['challenge_count']:
+        if len(self.rounds) != int(self.expected_challenge_count):
             raise gl.vm.UserError('A funded challenge is required for another round')
         # Copy all persisted inputs before entering nondeterministic execution.
         source_set = spec['sources']
@@ -148,3 +152,30 @@ class SortitionDocket(gl.Contract):
         verdict = dict(gl.vm.run_nondet_unsafe(fetch_and_read, validate))
         verdict.update(round=len(self.rounds) + 1, resolved_at=now(), deadline=now() + int(self.appeal_window))
         self.rounds.append(json.dumps(verdict, sort_keys=True))
+        gl.get_contract_at(self.vault).emit(on='finalized').record_ruling(self.question_id, verdict['outcome'], len(self.rounds), self.criteria_hash)
+
+    @gl.public.write
+    def prepare_round(self, challenge_count: int) -> None:
+        if gl.message.sender_address != self.vault:
+            raise gl.vm.UserError('Only vault can confirm finalized funding')
+        if self.settled or challenge_count < 0 or challenge_count > 32:
+            raise gl.vm.UserError('Invalid funded hearing')
+        if self.funded and challenge_count == int(self.expected_challenge_count):
+            return
+        if challenge_count != len(self.rounds):
+            raise gl.vm.UserError('Funding must match the next hearing')
+        self.funded = True
+        self.expected_challenge_count = u256(challenge_count)
+
+    @gl.public.write
+    def publish_ruling(self) -> None:
+        if gl.message.sender_address != self.relay or not len(self.rounds):
+            raise gl.vm.UserError('Only relay can republish a stored ruling')
+        r = json.loads(self.rounds[-1])
+        gl.get_contract_at(self.vault).emit(on='finalized').record_ruling(self.question_id, r['outcome'], len(self.rounds), self.criteria_hash)
+
+    @gl.public.write
+    def close_settlement(self) -> None:
+        if gl.message.sender_address != self.vault:
+            raise gl.vm.UserError('Only vault can confirm final settlement')
+        self.settled = True
