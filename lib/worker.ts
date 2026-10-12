@@ -424,7 +424,7 @@ export async function workerTick() {
       }
     } else {
       const q =
-        await sql`SELECT id FROM questions WHERE docket_address IS NOT NULL AND status!='settled' AND next_index_at<=now() ORDER BY next_index_at,updated_at LIMIT 1`;
+        await sql`SELECT id FROM questions WHERE docket_address IS NOT NULL AND status NOT IN ('settled','archived') AND next_index_at<=now() ORDER BY next_index_at,updated_at LIMIT 1`;
       if (q[0]) {
         try {
           await updateQuestion(q[0].id);

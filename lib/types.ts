@@ -34,6 +34,7 @@ export type Question = {
   vault_address?: string;
   can_operate?: boolean;
   archived?: boolean;
+  archive_reason?: string | null;
   credit?: string;
   id: string;
   specification: Specification;

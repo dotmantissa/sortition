@@ -98,8 +98,13 @@ export async function queueAction(
     throw new HttpError(409, nativeAppealUnavailable);
   const sql = db();
   const rows =
-    await sql`SELECT owner_id,escrow,docket,vault_address FROM questions WHERE id=${id}`;
+    await sql`SELECT owner_id,archive_reason,escrow,docket,vault_address FROM questions WHERE id=${id}`;
   if (!rows[0]) throw new HttpError(404, "This question was not found.");
+  if (rows[0].archive_reason && action !== "withdraw")
+    throw new HttpError(
+      409,
+      "This docket is archived after a network failure. Its public receipts are preserved.",
+    );
   if (
     action !== "challenge" &&
     action !== "withdraw" &&

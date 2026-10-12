@@ -15,7 +15,8 @@ export async function GET(
     if (req.headers.has("authorization")) {
       const owner = await authenticate(req);
       const rows = await db()`SELECT owner_id FROM questions WHERE id=${id}`;
-      question.can_operate = rows[0]?.owner_id === owner.id;
+      question.can_operate =
+        !question.archive_reason && rows[0]?.owner_id === owner.id;
       if (question.escrow?.settled)
         question.credit = String(
           await readFinal(question.vault_address as Address, "get_credit", [

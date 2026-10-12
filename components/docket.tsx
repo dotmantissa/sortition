@@ -161,9 +161,8 @@ export function Docket({ initial }: { initial: Question }) {
             <div className="alert" role="status">
               <LockKeyhole size={17} />
               <p>
-                This docket uses an earlier resolver. Its record is preserved,
-                but new fees and bonds belong in a question registered with the
-                current contracts.
+                {q.archive_reason ||
+                  "This docket uses an earlier resolver. Its record is preserved, but new fees and bonds belong in a question registered with the current contracts."}
               </p>
             </div>
           ) : null}
@@ -419,11 +418,12 @@ export function Docket({ initial }: { initial: Question }) {
               </>
             ) : (
               <>
-                {pendingRehearing ||
-                (q.can_operate &&
-                  !latest &&
-                  time >= q.specification.close_timestamp &&
-                  q.escrow?.funded) ? (
+                {!q.archive_reason &&
+                (pendingRehearing ||
+                  (q.can_operate &&
+                    !latest &&
+                    time >= q.specification.close_timestamp &&
+                    q.escrow?.funded)) ? (
                   <button
                     className="button primary"
                     disabled={busy || active || !time}

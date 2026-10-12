@@ -26,6 +26,7 @@ class HttpError extends Error {
 function service(
   options: {
     pending?: boolean;
+    archived?: boolean;
     duplicate?: boolean;
     changedExpected?: boolean;
   } = {},
@@ -38,6 +39,9 @@ function service(
       return [
         {
           owner_id: "operator",
+          archive_reason: options.archived
+            ? "Recorded Studio rollback failure"
+            : null,
           vault_address: "0xvault",
           escrow: {
             version: 2,
@@ -187,4 +191,19 @@ test("the Studio API rejects paused native appeals before queuing any work", asy
     /paused/,
   );
   assert.equal(h.calls.length, 0);
+});
+
+test("a docket damaged by a network rollback cannot accept another funded action", async () => {
+  const h = service({ archived: true });
+  await assert.rejects(
+    h.exports.queueAction(
+      { id: "operator", beneficiary: "0xwallet" },
+      "q",
+      "fund",
+      undefined,
+      "archived-fund",
+    ),
+    /archived/,
+  );
+  assert.ok(!h.calls.some((q) => q.includes("INSERT INTO operations")));
 });

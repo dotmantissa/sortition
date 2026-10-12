@@ -57,3 +57,5 @@ CREATE TABLE IF NOT EXISTS reference_settlements (
   outcome text NOT NULL CHECK(outcome IN ('YES','NO','UNRESOLVABLE')), action text NOT NULL,
   body_hash text NOT NULL, received_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS archive_reason text;
