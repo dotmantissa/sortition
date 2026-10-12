@@ -1,5 +1,9 @@
-from conftest import address, warp
+from conftest import address, warp, HEARING_TIMEOUT, MAX_ROUNDS, APPEAL_WINDOW
 import pytest
+
+# The vault fixture binds q1 with close_timestamp 1800000000 while the clock is
+# at 2028-01-01T00:00:00Z, so a funded hearing is due 2 hours after funding.
+FUNDED_DEADLINE = '2028-01-01T02:00:01Z'
 
 def funded(c, vm):
     vm.value = 10
@@ -23,7 +27,13 @@ def test_one_time_config_and_bind_auth(vault, direct_vm, direct_bob):
         c.configure(address(direct_bob))
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert('Only registry'):
-        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1, 60, 'a'*64)
+        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1, APPEAL_WINDOW, 'a'*64, 1800000000, HEARING_TIMEOUT, MAX_ROUNDS)
+
+@pytest.mark.parametrize('close,timeout,rounds', [(0, HEARING_TIMEOUT, 1), (1800000000, 299, 1), (1800000000, HEARING_TIMEOUT, 0), (1800000000, HEARING_TIMEOUT, 9)])
+def test_bind_rejects_unbounded_hearing_terms(vault, direct_vm, direct_bob, close, timeout, rounds):
+    c, _ = vault
+    with direct_vm.expect_revert('hearing deadline terms'):
+        c.bind('q2', address(direct_bob), address(direct_bob), 0, 1, APPEAL_WINDOW, 'a'*64, close, timeout, rounds)
 
 def test_bonds_escalate_and_winner_paid(vault, direct_vm, direct_bob):
     c, state = vault
@@ -102,10 +112,14 @@ def test_unauthorized_withdraw(vault,direct_vm,direct_charlie,direct_bob):
 
 def test_zero_fee_binding_is_funded(vault,direct_vm,direct_alice,direct_bob):
     c,_=vault
-    c.bind('q2',address(direct_bob),address(direct_bob),0,1,60,'a'*64)
-    assert c.get_account('q2')['funded']
+    c.bind('q2',address(direct_bob),address(direct_bob),0,1,APPEAL_WINDOW,'a'*64,1800000000,HEARING_TIMEOUT,MAX_ROUNDS)
+    account = c.get_account('q2')
+    assert account['funded']
+    # A zero fee hearing is still bounded from the moment it becomes payable.
+    assert account['hearing_deadline'] == 1830297600 + HEARING_TIMEOUT
+    assert account['fee_payer'] == ''
     with direct_vm.expect_revert('Invalid escrow'):
-        c.bind('q2',address(direct_bob),address(direct_bob),0,1,60,'a'*64)
+        c.bind('q2',address(direct_bob),address(direct_bob),0,1,APPEAL_WINDOW,'a'*64,1800000000,HEARING_TIMEOUT,MAX_ROUNDS)
     with direct_vm.expect_revert('not found'):
         c.get_account('missing')
 
@@ -161,3 +175,60 @@ def test_native_withdraw_emits_evm_payment_instead_of_genvm_call(vault,direct_vm
     assert transfer['calldata']==b''
     assert int(transfer['value'])==12
     assert c.get_credit(address(direct_bob))=='0'
+
+
+def test_bonded_rounds_are_bounded_by_the_registered_limit(direct_vm,direct_deploy,direct_alice,direct_bob,monkeypatch):
+    direct_vm.sender=direct_alice
+    direct_vm.warp('2028-01-01T00:00:00Z')
+    c=direct_deploy('contracts/settlement_vault.py',address(direct_alice))
+    c.configure(address(direct_alice))
+    # One bonded round only, so the escalating panel stays inside the range
+    # this deployment can actually seat.
+    c.bind('q1',address(direct_bob),address(direct_bob),0,1,APPEAL_WINDOW,'a'*64,1800000000,HEARING_TIMEOUT,1)
+    import genlayer
+    prepared=[]
+    class Docket:
+        def emit(self,**kw):return self
+        def prepare_round(self,*args):prepared.append(args)
+        def close_settlement(self):pass
+    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Docket())
+    direct_vm.sender=direct_bob
+    c.record_ruling('q1','YES',1,'a'*64)
+    direct_vm.sender=direct_alice
+    direct_vm.value=1
+    c.challenge('q1',address(direct_alice),'NO')
+    assert prepared[-1]==(1,7)
+    direct_vm.sender=direct_bob
+    direct_vm.value=0
+    c.record_ruling('q1','NO',2,'a'*64)
+    direct_vm.sender=direct_alice
+    direct_vm.value=2
+    with direct_vm.expect_revert('Maximum bonded rounds'):
+        c.challenge('q1',address(direct_alice),'YES')
+
+
+def test_each_funded_round_commits_its_required_panel(vault,direct_vm,direct_bob):
+    c,state=vault
+    funded(c,direct_vm)
+    assert state['prepared']==(0,5)
+    assert c.get_account('q1')['required_validators']==5
+    direct_vm.value=2
+    c.challenge('q1',address(direct_bob),'NO')
+    assert state['prepared']==(1,7)
+    assert c.get_account('q1')['required_validators']==7
+    assert c.get_configuration()['minimum_panel']==5
+
+
+def test_relay_role_can_be_handed_over(vault,direct_vm,direct_alice,direct_bob,direct_charlie):
+    c,_=vault
+    assert c.get_configuration()['relay'].lower()==address(direct_alice).lower()
+    direct_vm.sender=direct_charlie
+    with direct_vm.expect_revert('current relay'):
+        c.transfer_relay(address(direct_charlie))
+    direct_vm.sender=direct_alice
+    c.transfer_relay(address(direct_charlie))
+    assert c.get_configuration()['relay'].lower()==address(direct_charlie).lower()
+    # The retired key can no longer sponsor a bond on someone else's behalf.
+    direct_vm.value=2
+    with direct_vm.expect_revert('Only claimant'):
+        c.challenge('q1',address(direct_bob),'NO')

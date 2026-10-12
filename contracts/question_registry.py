@@ -12,14 +12,47 @@ class QuestionRegistry(gl.Contract):
     questions: TreeMap[str, str]
     question_ids: DynArray[str]
     appeal_window: u256
+    relay_grace: u256
+    hearing_timeout: u256
+    max_rounds: u256
 
-    def __init__(self, vault: str, docket_code: str, appeal_window: int):
+    def __init__(self, vault: str, docket_code: str, appeal_window: int, relay_grace: int, hearing_timeout: int, max_rounds: int):
         if appeal_window < 60 or appeal_window > 604800:
             raise gl.vm.UserError('Invalid appeal window')
+        if not 60 <= relay_grace <= 2592000:
+            raise gl.vm.UserError('Invalid relay grace period')
+        if not 300 <= hearing_timeout <= 2592000 or hearing_timeout <= appeal_window:
+            raise gl.vm.UserError('Invalid hearing timeout')
+        if not 1 <= max_rounds <= 8:
+            raise gl.vm.UserError('Invalid bonded round limit')
         self.owner = gl.message.sender_address
         self.vault = Address(vault)
         self.docket_code = docket_code
         self.appeal_window = u256(appeal_window)
+        self.relay_grace = u256(relay_grace)
+        self.hearing_timeout = u256(hearing_timeout)
+        self.max_rounds = u256(max_rounds)
+
+    @gl.public.view
+    def get_terms(self) -> dict:
+        return {'version': 4, 'relay': str(self.owner), 'vault': str(self.vault), 'appeal_window': int(self.appeal_window), 'relay_grace': int(self.relay_grace), 'hearing_timeout': int(self.hearing_timeout), 'max_rounds': int(self.max_rounds), 'docket_code_hash': hashlib.sha256(self.docket_code.encode()).hexdigest()}
+
+    @gl.public.write
+    def transfer_relay(self, relay: str) -> None:
+        if gl.message.sender_address != self.owner:
+            raise gl.vm.UserError('Only the current relay can hand over its role')
+        self.owner = Address(relay)
+
+    @gl.public.write
+    def rotate_relay(self, question_id: str, relay: str) -> None:
+        # A docket's requesting relay can be replaced without touching its
+        # locked specification, stored rulings or escrow.
+        if gl.message.sender_address != self.owner:
+            raise gl.vm.UserError('Only the operator relay can rotate a docket relay')
+        if question_id not in self.questions:
+            raise gl.vm.UserError('Question not found')
+        q = json.loads(self.questions[question_id])
+        gl.get_contract_at(Address(q['docket_address'])).emit(on='finalized').set_relay(relay)
 
     @gl.public.write
     def register(self, question_id: str, specification: str, beneficiary: str, fee: int, base_bond: int) -> str:
@@ -51,10 +84,10 @@ class QuestionRegistry(gl.Contract):
         # Hash the complete canonical payload, including any operator metadata.
         canonical = json.dumps(spec, sort_keys=True, separators=(',', ':'))
         criteria_hash = hashlib.sha256(canonical.encode()).hexdigest()
-        addr = gl.deploy_contract(code=self.docket_code.encode(), args=[canonical, criteria_hash, str(self.vault), question_id, int(self.appeal_window), str(self.owner)], salt_nonce=u256(len(self.question_ids) + 1), on='finalized')
-        self.questions[question_id] = json.dumps({'version': 3, 'id': question_id, 'docket_address': str(addr), 'criteria_hash': criteria_hash, 'specification': spec, 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond)})
+        addr = gl.deploy_contract(code=self.docket_code.encode(), args=[canonical, criteria_hash, str(self.vault), question_id, int(self.appeal_window), str(self.owner), str(gl.message.contract_address), int(self.relay_grace)], salt_nonce=u256(len(self.question_ids) + 1), on='finalized')
+        self.questions[question_id] = json.dumps({'version': 4, 'id': question_id, 'docket_address': str(addr), 'criteria_hash': criteria_hash, 'specification': spec, 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'relay_grace': int(self.relay_grace), 'hearing_timeout': int(self.hearing_timeout), 'max_rounds': int(self.max_rounds)})
         self.question_ids.append(question_id)
-        gl.get_contract_at(self.vault).emit(on='finalized').bind(question_id, str(addr), beneficiary, fee, base_bond, int(self.appeal_window), criteria_hash)
+        gl.get_contract_at(self.vault).emit(on='finalized').bind(question_id, str(addr), beneficiary, fee, base_bond, int(self.appeal_window), criteria_hash, int(spec['close_timestamp']), int(self.hearing_timeout), int(self.max_rounds))
         return criteria_hash
 
     @gl.public.view

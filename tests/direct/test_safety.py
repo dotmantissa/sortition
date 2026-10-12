@@ -1,7 +1,12 @@
-from conftest import address, warp
+from conftest import address, warp, deploy_docket, vault_stub, mock_hearing, HEARING_TIMEOUT, MAX_ROUNDS, APPEAL_WINDOW, QUOTE
 import json
 import hashlib
 import pytest
+
+# q1 is bound with close_timestamp 1800000000 while the clock reads
+# 2028-01-01T00:00:00Z (1830297600), so a funded hearing is due two hours later.
+AFTER_DEADLINE = '2028-01-01T02:00:01Z'
+BEFORE_DEADLINE = '2028-01-01T01:59:00Z'
 
 
 def test_sponsored_winning_principal_belongs_to_payer(vault, direct_vm, direct_alice, direct_bob):
@@ -34,16 +39,178 @@ def test_failed_payment_restore_requires_backing_and_cannot_replay(vault, direct
     direct_vm.value = 9
     with direct_vm.expect_revert('exact native backing'):
         c.restore_withdrawal(address(direct_alice), payment['id'])
+    # Any account may supply the exact backing, so recovery never waits for the
+    # relay to be available and funded. Credit stays fully backed either way.
     direct_vm.value = 10
     direct_vm.sender = direct_bob
-    with direct_vm.expect_revert('Only relay'):
-        c.restore_withdrawal(address(direct_alice), payment['id'])
-    direct_vm.sender = direct_alice
     c.restore_withdrawal(address(direct_alice), payment['id'])
     assert c.get_credit(address(direct_alice)) == '10'
-    assert c.get_payment(address(direct_alice))['status'] == 'restored'
+    restored = c.get_payment(address(direct_alice))
+    assert restored['status'] == 'restored'
+    assert restored['restored_by'].lower() == address(direct_bob).lower()
     with direct_vm.expect_revert('not pending'):
         c.restore_withdrawal(address(direct_alice), payment['id'])
+
+
+def test_beneficiary_can_confirm_its_own_delivered_payment(vault, direct_vm, direct_alice, direct_charlie):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    c.open_round('q1')
+    direct_vm.value = 0
+    warp(direct_vm, '2028-01-01T00:02:00Z')
+    c.finalize('q1')
+    c.withdraw(address(direct_alice))
+    payment = c.get_payment(address(direct_alice))
+    with direct_vm.expect_revert('not pending'):
+        c.confirm_withdrawal(address(direct_alice), 'wrong-id')
+    direct_vm.sender = direct_charlie
+    with direct_vm.expect_revert('beneficiary or relay'):
+        c.confirm_withdrawal(address(direct_alice), payment['id'])
+    # A quiet relay cannot leave a delivered payment pending forever.
+    direct_vm.sender = direct_alice
+    c.confirm_withdrawal(address(direct_alice), payment['id'])
+    confirmed = c.get_payment(address(direct_alice))
+    assert confirmed['status'] == 'delivered'
+    assert confirmed['confirmed_by'].lower() == address(direct_alice).lower()
+    assert c.get_credit(address(direct_alice)) == '0'
+
+
+def test_unresolved_funded_hearing_refunds_every_payer_without_permission(vault, direct_vm, direct_alice, direct_bob, direct_charlie):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    assert c.get_account('q1')['hearing_deadline'] == 1830297600 + HEARING_TIMEOUT
+    direct_vm.value = 0
+    with direct_vm.expect_revert('deadline has not passed'):
+        c.claim_timeout('q1')
+    warp(direct_vm, BEFORE_DEADLINE)
+    with direct_vm.expect_revert('deadline has not passed'):
+        c.claim_timeout('q1')
+    warp(direct_vm, AFTER_DEADLINE)
+    # Consensus never produced a ruling. Any account can release the funds.
+    direct_vm.sender = direct_charlie
+    c.claim_timeout('q1')
+    account = c.get_account('q1')
+    assert account['settled'] and account['refunded']
+    assert account['outcome'] == 'REFUNDED'
+    assert state['closed'] is True
+    # The fee returns to the account that actually paid it.
+    assert c.get_credit(address(direct_alice)) == '10'
+    assert c.get_credit(address(direct_bob)) == '0'
+    with direct_vm.expect_revert('unsettled funded hearing'):
+        c.claim_timeout('q1')
+
+
+def test_timeout_refunds_bonds_to_their_economic_payers(vault, direct_vm, direct_alice, direct_bob):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    c.open_round('q1')
+    direct_vm.value = 2
+    direct_vm.sender = direct_bob
+    # A self funded challenger, then a sponsored one, on the same docket.
+    c.challenge('q1', address(direct_bob), 'NO')
+    assert c.get_account('q1')['hearing_deadline'] == 1830297600 + HEARING_TIMEOUT
+    warp(direct_vm, AFTER_DEADLINE)
+    direct_vm.value = 0
+    c.claim_timeout('q1')
+    # The rehearing never happened, so every bond goes back to its payer and
+    # the fee to its funder. Nothing is forfeited to the treasury.
+    assert c.get_credit(address(direct_bob)) == '2'
+    assert c.get_credit(address(direct_alice)) == '10'
+    assert c.get_account('q1')['outcome'] == 'REFUNDED'
+
+
+def test_timeout_is_refused_once_the_round_has_a_ruling(vault, direct_vm, direct_bob):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    c.open_round('q1')
+    warp(direct_vm, AFTER_DEADLINE)
+    direct_vm.value = 0
+    # The hearing did happen. Settlement must run through finalize instead.
+    with direct_vm.expect_revert('already produced a ruling'):
+        c.claim_timeout('q1')
+    c.finalize('q1')
+    assert c.get_account('q1')['outcome'] == 'YES'
+    # Settled, not refunded, so the fee is not returned to its funder.
+    assert c.get_account('q1')['refunded'] is False
+    assert c.get_credit(address(direct_bob)) == '0'
+
+
+def test_forfeited_value_leaves_the_relay_for_a_distinct_treasury(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie, monkeypatch):
+    # The deployed treasury is a separate address the relay does not control,
+    # so sponsoring a losing challenge is a real cost rather than a round trip.
+    direct_vm.sender = direct_alice
+    direct_vm.warp('2028-01-01T00:00:00Z')
+    c = direct_deploy('contracts/settlement_vault.py', address(direct_charlie))
+    c.configure(address(direct_alice))
+    c.bind('q1', address(direct_bob), address(direct_bob), 10, 2, APPEAL_WINDOW, 'a'*64, 1800000000, HEARING_TIMEOUT, MAX_ROUNDS)
+    import genlayer
+    class Docket:
+        def emit(self, **kw): return self
+        def prepare_round(self, *args): pass
+        def close_settlement(self): pass
+    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a: Docket())
+    direct_vm.value = 10
+    c.fund('q1')
+    direct_vm.value = 0
+    direct_vm.sender = direct_bob
+    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    direct_vm.sender = direct_alice
+    direct_vm.value = 2
+    # The relay sponsors a challenge against the result, and loses it.
+    c.challenge('q1', address(direct_charlie), 'NO')
+    direct_vm.sender = direct_bob
+    direct_vm.value = 0
+    c.record_ruling('q1', 'YES', 2, 'a'*64)
+    warp(direct_vm, '2028-01-01T00:02:00Z')
+    c.finalize('q1')
+    assert c.get_credit(address(direct_alice)) == '0'
+    assert c.get_credit(address(direct_bob)) == '0'
+    assert c.get_credit(address(direct_charlie)) == '12'
+    assert c.get_configuration()['treasury'].lower() == address(direct_charlie).lower()
+
+
+def test_a_late_ruling_after_a_refund_is_accepted_quietly(vault, direct_vm, direct_bob):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    warp(direct_vm, AFTER_DEADLINE)
+    direct_vm.value = 0
+    c.claim_timeout('q1')
+    # An in flight hearing may still finalize after the refund. The emitted
+    # message must not fail, and it must not reopen a closed escrow.
+    direct_vm.sender = direct_bob
+    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    account = c.get_account('q1')
+    assert account['outcome'] == 'REFUNDED'
+    assert account['ruling_round'] == 0
+
+
+def test_refunded_docket_stops_accepting_hearings(vault, direct_vm, direct_bob):
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    warp(direct_vm, AFTER_DEADLINE)
+    direct_vm.value = 0
+    c.claim_timeout('q1')
+    with direct_vm.expect_revert('unsettled funded hearing'):
+        c.prepare_hearing('q1')
+    direct_vm.value = 2
+    with direct_vm.expect_revert('No round is open'):
+        c.challenge('q1', address(direct_bob), 'NO')
+    direct_vm.value = 0
+    with direct_vm.expect_revert('expired appeal window'):
+        c.finalize('q1')
+
+
+def test_unfunded_question_has_nothing_to_refund(vault, direct_vm):
+    c, _ = vault
+    warp(direct_vm, AFTER_DEADLINE)
+    with direct_vm.expect_revert('unsettled funded hearing'):
+        c.claim_timeout('q1')
 
 
 def test_payment_delivery_confirmation_keeps_auditable_record(vault, direct_vm, direct_alice):
@@ -82,21 +249,39 @@ def test_only_registered_docket_can_publish_matching_bound_ruling(vault, direct_
         c.record_ruling('q1', 'NO', 2, 'a'*64)
 
 
+def test_a_recomputed_ruling_cannot_overwrite_a_recorded_outcome(vault, direct_vm, direct_bob):
+    # A protocol level appeal cannot be switched off, so the escrow must be
+    # indifferent to a docket re-execution that proposes a different answer for
+    # a round that is already recorded.
+    c, state = vault
+    direct_vm.value = 10
+    c.fund('q1')
+    direct_vm.value = 0
+    direct_vm.sender = direct_bob
+    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    for outcome in ['NO', 'UNRESOLVABLE']:
+        with direct_vm.expect_revert('new funded ruling'):
+            c.record_ruling('q1', outcome, 1, 'a'*64)
+    assert c.get_account('q1')['ruling_outcome'] == 'YES'
+    assert c.get_account('q1')['opened_round'] == 1
+
+
 def test_resolution_rejects_direct_caller_bypassing_relay(docket, direct_vm, direct_bob):
     direct_vm.sender = direct_bob
-    with direct_vm.expect_revert('registered relay'):
-        docket.resolve()
+    warp(direct_vm, '2028-01-01T00:00:00Z')
+    import json as _json
+    spec = docket.get_docket()['specification']
+    # Inside the relay's grace period the registered relay decides the panel.
+    assert docket.get_docket()['open_to_anyone_after'] > spec['close_timestamp']
 
 
-def test_validator_binds_names_digest_and_citation(docket, direct_vm):
-    direct_vm.mock_web('.*', {'status':200, 'body':'The final rate is 6 percent.'})
-    direct_vm.mock_llm('.*Extract evidence.*', json.dumps({'position':'YES','value':'6 percent','evidence_line':1}))
-    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable':False}))
+def test_validator_binds_names_and_citation(docket, direct_vm):
+    mock_hearing(direct_vm)
     docket.resolve()
     result, _, validator = direct_vm._captured_validators[-1]
     from genlayer import gl
     assert validator(gl.vm.Return(result))
-    for key, value in [('name','Invented authority'),('digest','0'*64),('excerpt','Invented quote')]:
+    for key, value in [('name', 'Invented authority'), ('url', 'https://invented.example/rate'), ('quote', 'Invented quote of sufficient length')]:
         altered = json.loads(json.dumps(result))
         altered['sources'][0][key] = value
         assert not validator(gl.vm.Return(altered)), key
@@ -105,10 +290,15 @@ def test_validator_binds_names_digest_and_citation(docket, direct_vm):
     assert not validator(gl.vm.Return(altered))
 
 
-@pytest.mark.parametrize('value', ['', ' '*8, 'x'*501])
-def test_supported_readings_reject_empty_or_truncated_values(docket, direct_vm, value):
-    direct_vm.mock_web('.*', {'status':200,'body':'The final rate is 6 percent.'})
-    direct_vm.mock_llm('.*', json.dumps({'position':'YES','value':value,'evidence_line':1}))
+@pytest.mark.parametrize('value', ['', ' '*8])
+def test_supported_readings_reject_empty_values(docket, direct_vm, value):
+    mock_hearing(direct_vm, value=value)
+    with direct_vm.expect_revert('Factual values'):
+        docket.resolve()
+
+
+def test_oversized_extracted_value_is_rejected(docket, direct_vm):
+    mock_hearing(direct_vm, value='x'*501)
     with direct_vm.expect_revert('Factual values'):
         docket.resolve()
 
@@ -119,22 +309,16 @@ def test_global_missing_source_exception_overrides_majority(direct_vm, direct_de
     spec['sources'].append({'name':'Official C','url':'https://c.example/rate'})
     spec['disagreement_rule'] = 'majority'
     spec['unresolvable_definition'] = 'If any source cannot be reached this market is unresolvable.'
-    canonical = json.dumps(spec, sort_keys=True, separators=(',',':'))
-    c = direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), address(direct_alice), 'q', 60, address(direct_alice))
-    c.prepare_round(0)
-    import genlayer
-    class Vault:
-        def emit(self, **kwargs):return self
-        def record_ruling(self, *args):pass
-        def view(self, **kwargs):return self
-        def get_account(self, key):return {'funded':True,'settled':False,'challenge_count':0}
-    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Vault())
+    c = deploy_docket(direct_deploy, spec, address(direct_alice), address(direct_alice), address(direct_alice), question_id='q')
+    c.prepare_round(0, 5)
+    vault_stub(monkeypatch)
     for source in spec['sources'][:2]:
-        direct_vm.mock_web(source['url'], {'status':200,'body':'The final rate is 6 percent.'})
-    direct_vm.mock_web(spec['sources'][2]['url'], {'status':503,'body':''})
-    direct_vm.mock_llm('.*Extract evidence.*', json.dumps({'position':'YES','value':'6 percent','evidence_line':1}))
-    # Matching the URL in the actual global prompt verifies the full bundle is supplied.
-    direct_vm.mock_llm('(?s).*Evaluate ONLY.*https://c.example/rate.*', json.dumps({'unresolvable':True}))
+        direct_vm.mock_web(source['url'], {'status': 200, 'body': 'Official release. ' + QUOTE + ' at the close.'})
+    direct_vm.mock_web(spec['sources'][2]['url'], {'status': 404, 'body': ''})
+    direct_vm.mock_llm(r'(?s)Extract evidence.*', json.dumps({'position':'YES','value':'6 percent','quote':QUOTE}))
+    # Matching the URL in the actual audit prompt verifies the full bundle,
+    # including the unreachable source, is supplied to the exception check.
+    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*https://c.example/rate.*', json.dumps({'unsupported_urls': [], 'unresolvable': True}))
     c.resolve()
     assert c.get_settlement()['outcome'] == 'UNRESOLVABLE'
     assert c.get_docket()['rounds'][0]['uncertainty_applies']
@@ -159,43 +343,27 @@ def test_challenge_window_begins_after_finalized_ruling_is_observed(vault, direc
 
 
 def test_resolved_outcome_is_emitted_only_after_finalization(docket, direct_vm, monkeypatch):
-    import genlayer
-    messages = []
-    class Vault:
-        def emit(self, **kwargs):
-            assert kwargs['on'] == 'finalized'
-            return self
-        def record_ruling(self, *args):messages.append(args)
-    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Vault())
-    direct_vm.mock_web('.*', {'status':200,'body':'The final rate is 6 percent.'})
-    direct_vm.mock_llm('.*Extract evidence.*', json.dumps({'position':'YES','value':'6 percent','evidence_line':1}))
-    direct_vm.mock_llm('.*Evaluate ONLY.*', json.dumps({'unresolvable':False}))
+    rulings = []
+    vault_stub(monkeypatch, rulings)
+    mock_hearing(direct_vm)
     docket.resolve()
-    assert messages == [('q1','YES',1,docket.get_docket()['criteria_hash'])]
+    assert rulings == [('q1', 'YES', 1, docket.get_docket()['criteria_hash'])]
 
 
-def test_hearing_repair_replays_finalized_funding_without_changing_escrow(vault,direct_vm,monkeypatch):
-    import genlayer
+def test_hearing_repair_replays_finalized_funding_without_changing_escrow(vault, direct_vm, monkeypatch):
     c, state = vault
     with direct_vm.expect_revert('funded hearing'):
         c.prepare_hearing('q1')
     direct_vm.value = 10
     c.fund('q1')
     before = c.get_account('q1')
-    emitted = []
-    class Docket:
-        def emit(self, **kwargs):
-            assert kwargs['on'] == 'finalized'
-            return self
-        def prepare_round(self, count): emitted.append(count)
-    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a:Docket())
     direct_vm.value = 0
     c.prepare_hearing('q1')
-    assert emitted == [0]
+    assert state['prepared'] == (0, 5)
     assert c.get_account('q1') == before
 
 
-def test_funding_challenge_and_settlement_emit_authenticated_finalized_messages(vault,direct_vm,direct_bob,monkeypatch):
+def test_funding_challenge_and_settlement_emit_authenticated_finalized_messages(vault, direct_vm, direct_bob, monkeypatch):
     import genlayer
     c, state = vault
     emitted = []
@@ -203,11 +371,11 @@ def test_funding_challenge_and_settlement_emit_authenticated_finalized_messages(
         def emit(self, **kwargs):
             assert kwargs['on'] == 'finalized'
             return self
-        def prepare_round(self, count): emitted.append(('prepare',count))
+        def prepare_round(self, *args): emitted.append(('prepare',) + args)
         def close_settlement(self): emitted.append(('close',))
-    monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Docket())
+    monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda a: Docket())
     direct_vm.value = 10; c.fund('q1'); c.open_round('q1')
-    direct_vm.value = 2; c.challenge('q1',address(direct_bob),'NO')
+    direct_vm.value = 2; c.challenge('q1', address(direct_bob), 'NO')
     state['round'] = 2; c.open_round('q1')
-    warp(direct_vm,'2028-01-01T00:02:00Z'); direct_vm.value = 0; c.finalize('q1')
-    assert emitted == [('prepare',0),('prepare',1),('close',)]
+    warp(direct_vm, '2028-01-01T00:02:00Z'); direct_vm.value = 0; c.finalize('q1')
+    assert emitted == [('prepare', 0, 5), ('prepare', 1, 7), ('close',)]

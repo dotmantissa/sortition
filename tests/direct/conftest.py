@@ -27,40 +27,64 @@ def direct_deploy(direct_deploy, pinned_sdk_bundle):
     return partial(direct_deploy, sdk_version=pinned_sdk_bundle)
 
 
+# Terms the deployed registry passes to every docket and escrow.
+APPEAL_WINDOW = 60
+RELAY_GRACE = 3600
+HEARING_TIMEOUT = 7200
+MAX_ROUNDS = 8
+BODY = 'Official release. The final rate is 6 percent at the close of business.'
+QUOTE = 'The final rate is 6 percent'
+
+
 @pytest.fixture
 def spec():
     return {'question': 'Did the published rate exceed five percent?', 'criteria': 'YES if the official rate is above 5 percent. Otherwise NO.', 'unresolvable_definition': 'No final official release or missing numeric rate.', 'sources': [{'name': 'Official A', 'url': 'https://a.example/rate'}, {'name': 'Official B', 'url': 'https://b.example/rate'}], 'tie_break_url': 'https://a.example/rate', 'disagreement_rule': 'unanimous', 'close_timestamp': 1800000000}
 
-@pytest.fixture
-def docket(direct_vm, direct_deploy, direct_alice, spec, monkeypatch):
-    direct_vm.sender = direct_alice
-    direct_vm.warp('2028-01-01T00:00:00Z')
+
+def deploy_docket(direct_deploy, spec, vault, relay, registry, question_id='q1', grace=RELAY_GRACE):
     canonical = json.dumps(spec, sort_keys=True, separators=(',', ':'))
-    c = direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), address(direct_alice), 'q1', 60, address(direct_alice))
-    c.prepare_round(0)
+    return direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), vault, question_id, APPEAL_WINDOW, relay, registry, grace)
+
+
+def vault_stub(monkeypatch, rulings=None):
     import genlayer
     class Vault:
         def emit(self, **kwargs):
             assert kwargs['on'] == 'finalized'
             return self
-        def record_ruling(self, *args): pass
+        def record_ruling(self, *args):
+            if rulings is not None:
+                rulings.append(args)
         def view(self, **kwargs): return self
         def get_account(self, key): return {'funded': True, 'settled': False, 'challenge_count': 0}
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda addr: Vault())
+    return Vault
+
+
+@pytest.fixture
+def docket(direct_vm, direct_deploy, direct_alice, spec, monkeypatch):
+    direct_vm.sender = direct_alice
+    direct_vm.warp('2028-01-01T00:00:00Z')
+    c = deploy_docket(direct_deploy, spec, address(direct_alice), address(direct_alice), address(direct_alice))
+    c.prepare_round(0, 5)
+    vault_stub(monkeypatch)
     return c
+
 
 @pytest.fixture
 def registry(direct_vm, direct_deploy, direct_alice, monkeypatch):
     direct_vm.sender = direct_alice
     warp(direct_vm, '2026-01-01T00:00:00Z')
-    c = direct_deploy('contracts/question_registry.py', address(direct_alice), Path('contracts/sortition_docket.py').read_text(), 60)
+    c = direct_deploy('contracts/question_registry.py', address(direct_alice), Path('contracts/sortition_docket.py').read_text(), APPEAL_WINDOW, RELAY_GRACE, HEARING_TIMEOUT, MAX_ROUNDS)
     import genlayer
     monkeypatch.setattr(genlayer.gl, 'deploy_contract', lambda **kw: direct_alice)
     class Vault:
         def emit(self, **kw): return self
         def bind(self, *a): pass
+        def set_relay(self, *a): pass
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda addr: Vault())
     return c
+
 
 @pytest.fixture
 def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
@@ -68,7 +92,7 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
     direct_vm.warp('2028-01-01T00:00:00Z')
     c = direct_deploy('contracts/settlement_vault.py', address(direct_alice))
     c.configure(address(direct_alice))
-    c.bind('q1', address(direct_bob), address(direct_bob), 10, 2, 60, 'a'*64)
+    c.bind('q1', address(direct_bob), address(direct_bob), 10, 2, APPEAL_WINDOW, 'a'*64, 1800000000, HEARING_TIMEOUT, MAX_ROUNDS)
     import genlayer
     state = {'outcome': 'YES', 'round': 1, 'deadline': 1830297660}
     class Docket:
@@ -76,8 +100,8 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
         def get_settlement(self): return state
         def emit(self, **kw): return self
         def resolve(self): pass
-        def prepare_round(self, *args): pass
-        def close_settlement(self): pass
+        def prepare_round(self, *args): state['prepared'] = args
+        def close_settlement(self): state['closed'] = True
         def emit_transfer(self, **kw): state['transfer'] = kw
     monkeypatch.setattr(genlayer.gl, 'get_contract_at', lambda addr: Docket())
     # Keep the EVM transfer path distinct from GenVM contract calls.
@@ -108,3 +132,13 @@ def warp(vm, timestamp):
     import sys
     if 'genlayer.gl' in sys.modules:
         sys.modules['genlayer.gl'].message_raw['datetime'] = timestamp
+
+
+def mock_hearing(vm, position='YES', value='6 percent', quote: str | None = QUOTE, body=BODY, unresolvable=False, unsupported=None):
+    """Mock one source document plus both model stages of a hearing."""
+    vm.mock_web(r'https://.*\.example/rate', {'status': 200, 'body': body})
+    reply = {'position': position, 'value': value}
+    if quote is not None:
+        reply['quote'] = quote
+    vm.mock_llm(r'(?s)Extract evidence.*', json.dumps(reply))
+    vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': unsupported or [], 'unresolvable': unresolvable}))
