@@ -357,7 +357,7 @@ async function poll(job: Job) {
 async function delivery() {
   const sql = db();
   const rows =
-    await sql`SELECT d.*,w.url,w.secret_ciphertext FROM deliveries d JOIN webhooks w ON w.question_id=d.question_id WHERE d.status='pending' AND d.next_attempt_at<=now() ORDER BY d.next_attempt_at LIMIT 1`;
+    await sql`SELECT d.*,w.url,w.secret_ciphertext,floor(extract(epoch from now()))::bigint AS signing_timestamp FROM deliveries d JOIN webhooks w ON w.question_id=d.question_id WHERE d.status='pending' AND d.next_attempt_at<=now() ORDER BY d.next_attempt_at LIMIT 1`;
   if (!rows[0]) return;
   const d = rows[0];
   try {
@@ -366,6 +366,7 @@ async function delivery() {
       JSON.stringify(d.payload),
       decrypt(d.secret_ciphertext),
       d.id,
+      Number(d.signing_timestamp),
     );
     await sql`UPDATE deliveries SET status='delivered',attempts=attempts+1,delivered_at=now() WHERE id=${d.id}`;
   } catch {

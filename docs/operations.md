@@ -38,3 +38,5 @@ Factory children finish asynchronously. A parent registration receipt can finali
 When changing a contract, run lint and direct tests first, deploy a new registry with the updated docket code, and preserve old addresses. Existing criteria and dockets remain immutable. Each question retains its own registry and vault addresses, so the worker continues to follow older dockets after a new deployment.
 
 Studio may report a timestamp different from the operating system clock. Sortition reads the network timestamp for registration and appeal controls. Do not replace it with server wall time.
+
+Webhook signing uses the timestamp returned by Neon with the outbox row. A worker host clock may differ from the receiver clock; using a trusted shared timestamp avoids signing every event outside its replay window. Receivers still reject stale events.

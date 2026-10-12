@@ -77,9 +77,12 @@ export async function deliverWebhook(
   payload: string,
   secret: string,
   eventId: string,
+  signingTimestamp: number,
 ) {
+  if (!Number.isSafeInteger(signingTimestamp) || signingTimestamp <= 0)
+    throw new Error("A trusted signing timestamp is required");
   const { url, ip } = await publicDestination(raw);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const timestamp = signingTimestamp.toString();
   const signature = createHmac("sha256", secret)
     .update(`${timestamp}.${eventId}.${payload}`)
     .digest("hex");

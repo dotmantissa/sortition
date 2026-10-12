@@ -77,6 +77,7 @@ function harness(
       return [
         {
           id: "event",
+          signing_timestamp: 1000,
           url: "https://receiver.example",
           payload: {},
           secret_ciphertext: "encrypted",
@@ -200,7 +201,14 @@ function harness(
                 : name === "./security"
                   ? {
                       decrypt: () => "secret",
-                      deliverWebhook: async () => {
+                      deliverWebhook: async (
+                        _url: string,
+                        _body: string,
+                        _secret: string,
+                        _event: string,
+                        timestamp: number,
+                      ) => {
+                        chainCalls.push("deliver-clock:" + timestamp);
                         chainCalls.push("deliver");
                       },
                     }
@@ -416,4 +424,10 @@ test("a transient preflight read failure safely backs off without sending value 
   );
   assert.ok(!h.chainCalls.some((c) => c.startsWith("write:")));
   assert.ok(!h.calls.some((c) => c.values.includes("needs_review")));
+});
+
+test("the outbox signs with its database timestamp rather than a skewed worker clock", async () => {
+  const h = harness();
+  await h.exports.workerTick();
+  assert.ok(h.chainCalls.includes("deliver-clock:1000"));
 });
