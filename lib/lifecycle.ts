@@ -1,3 +1,8 @@
+// Studio appeal rollback failed in the recorded live verification. Keep the
+// funded application hearing available; do not sponsor this unsafe path.
+export const nativeAppealsEnabled: boolean = false;
+export const nativeAppealUnavailable =
+  "Native protocol appeals are paused on this Studio deployment after a failed rollback. Use a bonded docket hearing.";
 export const appealableStatuses = [
   "ACCEPTED",
   "UNDETERMINED",

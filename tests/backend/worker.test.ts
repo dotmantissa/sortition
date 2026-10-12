@@ -25,6 +25,7 @@ function harness(
     expiredLease?: boolean;
     messageHandoff?: boolean;
     unprepared?: boolean;
+    nativeDisabled?: boolean;
   } = {},
 ) {
   const calls: { query: string; values: any[] }[] = [],
@@ -185,7 +186,7 @@ function harness(
           : name === "./chain"
             ? fakeChain
             : name === "./lifecycle"
-              ? lifecycle
+              ? { ...lifecycle, nativeAppealsEnabled: !options.nativeDisabled }
               : name === "./sponsorship"
                 ? { reserveSponsorship: async () => {} }
                 : name === "./security"
@@ -364,4 +365,13 @@ test("a failed challenge callback still queues recovery of its paid hearing", as
         c.values.includes("resolve"),
     ),
   );
+});
+
+test("Studio refuses an unsafe native appeal before broadcasting", async () => {
+  const h = harness({ nativeDisabled: true });
+  await assert.rejects(
+    h.exports.workerUnderTest.submit(h.job("protocol_appeal"), "lease"),
+    /paused/,
+  );
+  assert.ok(!h.chainCalls.some((c) => c.startsWith("appeal:")));
 });

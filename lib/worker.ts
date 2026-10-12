@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
-import { protocolAppealable, questionState } from "./lifecycle";
+import {
+  protocolAppealable,
+  questionState,
+  nativeAppealsEnabled,
+  nativeAppealUnavailable,
+} from "./lifecycle";
 import { reserveSponsorship } from "./sponsorship";
 import {
   chain,
@@ -89,6 +94,8 @@ async function submit(job: Job, token: string) {
       value: 0n,
     });
   } else if (job.kind === "protocol_appeal") {
+    if (!nativeAppealsEnabled)
+      throw Error("Preparation failed: " + nativeAppealUnavailable);
     const rows =
       await db()`SELECT tx_hash FROM operations WHERE question_id=${job.question_id} AND kind='resolve' AND tx_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1`;
     if (!rows[0])

@@ -173,3 +173,18 @@ test("sponsorship reservation uses a serializable atomic budget check before pay
     /limit/,
   );
 });
+
+test("the Studio API rejects paused native appeals before queuing any work", async () => {
+  const h = service();
+  await assert.rejects(
+    h.exports.queueAction(
+      { id: "operator", beneficiary: "0xwallet" },
+      "q",
+      "protocol_appeal",
+      undefined,
+      "native-paused",
+    ),
+    /paused/,
+  );
+  assert.equal(h.calls.length, 0);
+});

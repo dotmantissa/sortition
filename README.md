@@ -14,7 +14,7 @@ Register a question through the email console or API. Lock two to five named sou
 
 Request a resolution after the question closes. Every validator fetches every registered source and independently extracts the facts. Consensus checks the answer, the intermediate readings, source availability, global uncertainty conditions and every stored evidence field. The record includes evidence digests, quotations, jury receipts and votes.
 
-Challenge a reading with a bond. Bonds double each round and the requested jury grows from 5 to 7 to 9 validators. GenLayer chooses the participants. Native protocol appeals provide the protocol's committee rotation while its decision window remains open. A fresh application challenge window starts after the ruling is final.
+Challenge a reading with a bond. Bonds double each round and the requested jury grows from 5 to 7 to 9 validators. GenLayer chooses the participants. Native protocol appeals are paused on this Studio deployment after a rollback failed live verification. Bonded hearings remain available. A fresh application challenge window starts after the ruling is final.
 
 Consume a final settlement through REST, JSON RPC, a signed webhook, or the React widget. Unresolvable is a normal outcome. Your venue decides what to refund when the agreed evidence cannot settle the question.
 

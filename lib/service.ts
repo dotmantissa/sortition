@@ -4,7 +4,11 @@ import { db } from "./db";
 import { HttpError } from "./auth";
 import { registrationSchema, closingIsFuture } from "./validation";
 import { publicDestination, encrypt, digest } from "./security";
-import { fundedRehearing } from "./lifecycle";
+import {
+  fundedRehearing,
+  nativeAppealsEnabled,
+  nativeAppealUnavailable,
+} from "./lifecycle";
 export async function rateLimit(owner: string) {
   const rows =
     await db()`SELECT count(*)::int AS count FROM operations WHERE owner_id=${owner} AND created_at>now()-interval '1 hour'`;
@@ -90,6 +94,8 @@ export async function queueAction(
     ].includes(action)
   )
     throw new HttpError(400, "Unknown docket action.");
+  if (action === "protocol_appeal" && !nativeAppealsEnabled)
+    throw new HttpError(409, nativeAppealUnavailable);
   const sql = db();
   const rows =
     await sql`SELECT owner_id,escrow,docket,vault_address FROM questions WHERE id=${id}`;

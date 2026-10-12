@@ -20,7 +20,11 @@ import {
 } from "lucide-react";
 import { CriteriaSeal } from "./seal";
 import { Status } from "./status";
-import { fundedRehearing, protocolAppealable } from "@/lib/lifecycle";
+import {
+  fundedRehearing,
+  protocolAppealable,
+  nativeAppealsEnabled,
+} from "@/lib/lifecycle";
 import { maximumSponsoredPayment } from "@/lib/sponsor-limits";
 import type { Question, Outcome } from "@/lib/types";
 function date(t: number) {
@@ -118,7 +122,9 @@ export function Docket({ initial }: { initial: Question }) {
     !waitingWindow;
   const nativeAppeal = q.receipts?.filter((r) => r.kind === "resolve").at(-1);
   const nativeAppealOpen =
-    !!nativeAppeal && protocolAppealable(String(nativeAppeal.receipt.status));
+    nativeAppealsEnabled &&
+    !!nativeAppeal &&
+    protocolAppealable(String(nativeAppeal.receipt.status));
   const nextBond =
     BigInt(q.base_bond) * 2n ** BigInt(q.escrow?.challenge_count || 0);
   return (
@@ -533,6 +539,12 @@ export function Docket({ initial }: { initial: Question }) {
                   >
                     Withdraw settlement credit
                   </button>
+                ) : null}
+                {!nativeAppealsEnabled && !q.escrow?.settled && !q.archived ? (
+                  <p className="docket-action-note">
+                    Studio uses bonded hearings here. Native protocol appeals
+                    are paused after a network rollback failed our live check.
+                  </p>
                 ) : null}
                 {nativeAppealOpen ? (
                   <>
