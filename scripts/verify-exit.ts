@@ -84,10 +84,10 @@ async function waitForOperation(kind: string, opId?: string) {
     } catch {
       console.log("Transient service read; the durable operation stands.");
     }
-    const rows =
-      await db()`SELECT * FROM operations WHERE question_id=${id} AND kind=${kind} ORDER BY created_at DESC LIMIT 1`;
+    const rows = opId
+      ? await db()`SELECT * FROM operations WHERE id=${opId}`
+      : await db()`SELECT * FROM operations WHERE question_id=${id} AND kind=${kind} ORDER BY created_at DESC LIMIT 1`;
     const op = rows[0];
-    if (op && opId) assert.equal(op.id, opId);
     if (op?.status === "complete") {
       console.log("Verified operation", kind, op.tx_hash);
       return op;
@@ -97,6 +97,25 @@ async function waitForOperation(kind: string, opId?: string) {
     await new Promise((r) => setTimeout(r, 10000));
   }
   throw Error(`Timed out: ${kind}`);
+}
+/** The worker queues the release itself once a hearing is overdue. Adopt that
+ * operation rather than competing with it. */
+async function releaseOperation() {
+  const existing =
+    await db()`SELECT id FROM operations WHERE question_id=${id} AND kind='claim_timeout' AND status<>'failed' ORDER BY created_at LIMIT 1`;
+  if (existing[0]) {
+    console.log("Adopting the service queued release", existing[0].id);
+    return existing[0].id as string;
+  }
+  return (
+    await queueAction(
+      owner,
+      id,
+      "claim_timeout",
+      undefined,
+      `studio-exit-${id}-timeout-v1`,
+    )
+  ).id as string;
 }
 await waitForOperation("register");
 const registered = object(
@@ -123,34 +142,31 @@ assert.equal(
   String(funded.fee_payer).toLowerCase(),
   account.address.toLowerCase(),
 );
-const deadline = Number(funded.hearing_deadline);
-assert.ok(deadline > 0, "a funded hearing must carry a deadline");
-state.hearing_deadline = deadline;
-state.fee = String(funded.fee);
+state.fee = state.fee ?? String(funded.fee);
 save();
-console.log("Fee funded by", funded.fee_payer, "deadline", deadline);
-// No hearing is ever requested for this question. Wait out the deadline.
-for (;;) {
-  const now = (await networkClock()).unix;
-  if (now >= deadline + 5) break;
-  console.log(`Waiting ${deadline - now}s for the funded hearing deadline`);
-  await new Promise((r) => setTimeout(r, 30000));
-}
-const overdue = object(await readFinal(addresses().vault, "get_account", [id]));
-assert.ok(
-  timeoutClaimable(overdue, (await networkClock()).unix),
-  "the hearing must be releasable once its deadline passes",
-);
-if (!state.claim_timeout) {
-  const queued = await queueAction(
-    owner,
-    id,
-    "claim_timeout",
-    undefined,
-    `studio-exit-${id}-timeout-v1`,
+// A resumed run skips straight to the recorded refund.
+if (!funded.settled) {
+  const deadline = Number(funded.hearing_deadline);
+  assert.ok(deadline > 0, "a funded hearing must carry a deadline");
+  state.hearing_deadline = deadline;
+  save();
+  console.log("Fee funded by", funded.fee_payer, "deadline", deadline);
+  // No hearing is ever requested for this question. Wait out the deadline.
+  for (;;) {
+    const now = (await networkClock()).unix;
+    if (now >= deadline + 5) break;
+    console.log(`Waiting ${deadline - now}s for the funded hearing deadline`);
+    await new Promise((r) => setTimeout(r, 30000));
+  }
+  const overdue = object(
+    await readFinal(addresses().vault, "get_account", [id]),
   );
-  const op = await waitForOperation("claim_timeout", queued.id);
-  state.claim_timeout = { tx_hash: op.tx_hash };
+  assert.ok(
+    timeoutClaimable(overdue, (await networkClock()).unix),
+    "the hearing must be releasable once its deadline passes",
+  );
+  const op = await waitForOperation("claim_timeout", await releaseOperation());
+  state.claim_timeout = { tx_hash: op.tx_hash, operation_id: op.id };
   save();
 }
 const released = object(

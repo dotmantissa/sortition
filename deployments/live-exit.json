@@ -1,0 +1,55 @@
+{
+  "question_id": "77c3266a-0419-4771-a979-52ad3e013590",
+  "docket_address": "0x23b06be27A840f5863bA342b0FA2852574DB5De4",
+  "criteria_hash": "5242526701db3b32a8b290d43f9e6e5b253ae722d32e628a36ee07eccfdc1cdd",
+  "fund": {
+    "tx_hash": "0x78a566b3a8bf6adfa17bca1b3d39845a46551473eb249c9b1b4ec3eb031487b6"
+  },
+  "hearing_deadline": 1791860094,
+  "fee": "7",
+  "claim_timeout": {
+    "tx_hash": "0x7438ecf26a0fe9b764657d4862a7f68c33c3edb3bde98e9c10e15a79c35c90a6",
+    "operation_id": "d6cd7aff-7211-48d7-b064-69a2429e38b8"
+  },
+  "refund_credit": "0",
+  "withdrawal_baseline": "800225500919583967452",
+  "refunded_amount": "7",
+  "withdraw": {
+    "tx_hash": "0x8c496a3736fcc56d775b4bc20754c78432ea308691f5a4e914400fbfa9a62b7e",
+    "amount": "7",
+    "payments": [
+      {
+        "hash": "0x754e6b3fa0109e0c0bb33a589079693e1eb87dd4001d4aaa93ca95578874c794",
+        "transaction_type": 0,
+        "value_credited": true,
+        "value": "7",
+        "sender": "0xAcA1E7ed1A68B35fe4D4E98b0d45fC02A2651729",
+        "recipient": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+        "status": "FINALIZED",
+        "execution_success": true,
+        "validators": [],
+        "leaders": [],
+        "history": {
+          "current_monitoring": {
+            "PENDING": 1791860284.5118153
+          },
+          "current_status_changes": [
+            "PENDING",
+            "FINALIZED"
+          ]
+        },
+        "rotation_count": 0,
+        "triggered_transactions": []
+      }
+    ]
+  },
+  "payment": {
+    "amount": "7",
+    "confirmed_by": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+    "id": "1",
+    "opened_at": 1791860249,
+    "status": "delivered"
+  },
+  "verified": true,
+  "native_withdrawal_verified": true
+}

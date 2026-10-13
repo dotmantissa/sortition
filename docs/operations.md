@@ -63,3 +63,14 @@ validators, and whether the receipt met the commitment. `GET
 entry means a hearing did not seat its funded panel — on Studio this is usually
 leader only execution. Treat it as a reason not to settle value, and re-run the
 hearing on a network that seats real panels.
+
+## Verifying a release without a browser
+
+`npm run test:browser` needs Chromium's system libraries (`libnspr4`,
+`libnss3`). Where those are unavailable, `npm run test:rendered` checks the same
+pages over HTTP: it asserts the home page, both live dockets, the published
+panel comparison, the refunded wording and the integration guide against the
+served markup. It is a narrower check than the Playwright suite — it does not
+exercise theme switching, the registration form or mobile layout — so run the
+browser suite on a host that can launch Chromium before a release you intend to
+call fully verified.

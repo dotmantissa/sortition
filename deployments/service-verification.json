@@ -1,19 +1,46 @@
 {
   "url": "https://sortition.vercel.app",
-  "question_id": "a1452539-47cf-4bbd-9e14-18cc0fa739ff",
-  "verified_at": "2026-10-12T08:10:55.226Z",
+  "question_id": "0957ca23-a353-4324-bf95-f70eb8b89e05",
+  "verified_at": "2026-10-13T03:27:51.462Z",
   "settlement": {
-    "question_id": "a1452539-47cf-4bbd-9e14-18cc0fa739ff",
+    "question_id": "0957ca23-a353-4324-bf95-f70eb8b89e05",
     "outcome": "YES",
     "final": true,
-    "criteria_hash": "12cd2b254355bc62b5a3b45053c8e361758bf141dd1682caa80787dc17f20ea8",
-    "docket_address": "0x3e70DB04c7B84d7775A469A1a18C87a780bA2e3e",
+    "refunded": false,
+    "criteria_hash": "f04bf6917e429ffe9c9c5ca726be7dda44ce78f7ba27389bb1c4c2cf36e408e9",
+    "docket_address": "0x25686E8fEEE82456648bc742F8BA0f2ea64e5e96",
     "network": "studionet",
     "rounds": 2,
-    "proof_url": "/dockets/a1452539-47cf-4bbd-9e14-18cc0fa739ff"
+    "as_of": "2026-10-13T02:46:47.219Z",
+    "index_age_seconds": 2432,
+    "stale": true,
+    "panel_verified": true,
+    "panel_checks": [
+      {
+        "round": 1,
+        "tx_hash": "0xf86b56c60932d8ae32d5a1af1003816d14e8e7b7865ea1afb96fbe75d32ec6fd",
+        "observed": 5,
+        "required": 5,
+        "verified": true,
+        "leader_only": false,
+        "independent_validators": 4
+      },
+      {
+        "round": 2,
+        "tx_hash": "0x64858e6a571fb8a38ce5737ec57aa1d54cfffef06a8450ba395640bd86f029e5",
+        "observed": 7,
+        "required": 7,
+        "verified": true,
+        "leader_only": false,
+        "independent_validators": 6
+      }
+    ],
+    "proof_url": "/dockets/0957ca23-a353-4324-bf95-f70eb8b89e05"
   },
   "checks": [
     "Final REST settlement and widget CORS",
+    "Verified hearing panels and signed settlement attestation",
+    "Refunded bounded exit published as a final non adjudication",
     "JSON RPC docket agrees with settlement",
     "Unsigned operator access rejected",
     "Hashed API key authenticates its owner",

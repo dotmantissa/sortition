@@ -17,7 +17,9 @@
     "format": "prettier --write app components lib scripts/*.ts integrations tests/backend tests/browser *.ts *.mjs *.json",
     "test:remediation": "tsx scripts/verify-remediation.mjs",
     "test:venue": "tsx scripts/verify-venue.mjs",
-    "test:exit": "tsx scripts/verify-exit.ts"
+    "test:exit": "tsx scripts/verify-exit.ts",
+    "test:escalation": "tsx scripts/verify-escalation.ts",
+    "test:rendered": "tsx scripts/verify-rendered.ts"
   },
   "dependencies": {
     "@farcaster/frame-sdk": "^0.0.64",

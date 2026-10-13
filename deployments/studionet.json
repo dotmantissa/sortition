@@ -2,20 +2,24 @@
   "network": "studionet",
   "chain_id": 61999,
   "deployer": "0xBC1399c55538eC034d4Da550C03c34Ae0C357f53",
+  "treasury": "0x000000000000000000000000000000000000dEaD",
   "appeal_window_seconds": 900,
+  "relay_grace_seconds": 900,
+  "hearing_timeout_seconds": 1800,
+  "max_bonded_rounds": 3,
   "contracts": {
     "vault": {
-      "tx_hash": "0xbac58aa38d8982f36ca426ac2bb05a28b7f750aeb259203ef3104e79dc528273",
-      "source_hash": "96c9fbd18e4999cf71afa600b49caf5ad177eb21ee6cbd934a403e8d6815d8d6",
-      "address": "0xCF4d1CBF0b3b536749D56ea9825a584c249f0592"
+      "tx_hash": "0x16e1d93e4a55f9f986133eb8c5be01083812d0108da3bc4c51918c2ef71406b1",
+      "source_hash": "d0bfd40ca636ee6d92817653927491eb3b75f3d71f984b255d21e4020fc93bb5",
+      "address": "0xAcA1E7ed1A68B35fe4D4E98b0d45fC02A2651729"
     },
     "registry": {
-      "tx_hash": "0x9445b48252db26e377d91608a9e9bae49ce71319570b1bcdb5f2648f298a8125",
-      "source_hash": "cc0f658d64a8d65fbf2255fece9d3dc31b3756de667fa67d078e0d7c4551dfe8",
-      "docket_source_hash": "a1b2b81af8a5816aa917c7b0514ca0c663ff005e9a1eb468a2f325f271b87b2b",
-      "address": "0x6E64a4154e2A8197417F9763e2652ca9ad64CA17"
+      "tx_hash": "0x94306d18f60e9b84e081c2eab72d1cdd5f9f945f3619b787839936f0d9a4c576",
+      "source_hash": "d6d1e8763704d038b01dd47524b5474cd6830692e9f3ab7c65fbfe990fcbd121",
+      "docket_source_hash": "b8d5a361e697d17d7e00b48419beb700201f032a41fd0509a00145993b1b6af6",
+      "address": "0xAb8b07F9F0917FD71686C258b15BB8c8072DD671"
     }
   },
-  "configure_tx": "0xaf277f8b979d597d002c8ae45b8bcd6f0ba4a51f860dd1e11a081a12d9a3ed6d",
+  "configure_tx": "0xf6c854c8d0b4b1a407d0bd349bed5a01fbf4b99f3d374bd52fc1e4084f228dc6",
   "configured": true
 }

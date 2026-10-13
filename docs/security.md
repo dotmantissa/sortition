@@ -20,7 +20,11 @@ Pausing appeals in the API, worker and UI only stops this application from submi
 - A docket left unable to complete its hearing still has a deadline. Once it passes, anyone can release the docket and every payer is refunded, so an appeal that bricks a hearing can no longer strand funds.
 - A ruling that lands after a refund is accepted quietly and changes nothing.
 
-Bonded application hearings use separate transactions and remain available.
+These are contract level properties, covered by the direct test suite rather
+than by a fresh live appeal: no new protocol appeal was attempted on this
+deployment, and the earlier attempt's receipt is the only live evidence either
+way. Bonded application hearings use separate transactions and remain
+available.
 
 ## What signatures do and do not prove
 

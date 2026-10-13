@@ -59,15 +59,18 @@ npm run build
 npm run test:browser
 npm run test:live
 npm run test:exit
+npm run test:escalation
+npm run test:rendered
 npm run test:remediation
 npm run test:venue
 npx tsx scripts/verify-payout.ts
 npx tsx scripts/verify-service.ts
+npx tsx scripts/verify-deployment.ts
 ```
 
 Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, absent versus temporarily unavailable sources, quotation binding and support, malformed model replies, validator comparison, escalating bonds, bounded rounds, committed panels, relay rotation, settlement boundaries, refunds and payouts. Test fixtures are confined to the test suite.
 
-The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks each hearing against the panel its round was funded for, finalizes settlement and confirms the losing bond left the relay for the burn treasury. The exit test proves the other ending: it funds a hearing, never asks for it, waits out the deadline, releases it permissionlessly, and verifies the exact refund arrives as native value and that the beneficiary can confirm delivery without the relay. Both keep resumable public progress in `deployments/live-test.json` and `deployments/live-exit.json`. The remediation verifier also proves distinct sponsor accounting, signed consumer delivery, duplicate handling and rejection of altered event IDs. Its test API keys are confined to a private local file and revoked after verification. These server integration checks do not claim to verify an email inbox.
+The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks each hearing against the panel its round was funded for, finalizes settlement and confirms the losing bond left the relay for the burn treasury. The exit test proves the other ending: it funds a hearing, never asks for it, waits out the deadline, releases it permissionlessly, and verifies the exact refund arrives as native value and that the beneficiary can confirm delivery without the relay. Both keep resumable public progress in `deployments/live-test.json` and `deployments/live-exit.json`. The escalation test walks one docket through every bonded round this deployment allows, checking that each round commits the escalating panel on chain, recording what each panel actually seated, and confirming the round limit is refused on chain rather than by the service. `verify-deployment.ts` re-reads the deployed contract code and compares it with this working tree. `verify-rendered.ts` asserts the served markup of the public pages, which is what runs where Chromium's system libraries are unavailable; `npm run test:browser` is the fuller Playwright suite. The remediation verifier also proves distinct sponsor accounting, signed consumer delivery, duplicate handling and rejection of altered event IDs. Its test API keys are confined to a private local file and revoked after verification. These server integration checks do not claim to verify an email inbox.
 
 ## Connect a venue
 
