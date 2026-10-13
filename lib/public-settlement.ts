@@ -18,7 +18,10 @@ export function indexAge(question: Question, now = Date.now()) {
  * under leader only execution is reported as unverified rather than silently
  * presented as consensus.
  */
-export function panelVerified(checks: PanelCheck[] | undefined, rounds: number) {
+export function panelVerified(
+  checks: PanelCheck[] | undefined,
+  rounds: number,
+) {
   if (!rounds) return null;
   if (!checks?.length) return false;
   const byRound = new Map(checks.map((c) => [Number(c.round), c]));
@@ -47,10 +50,15 @@ export function settlementView(
   const settled = question.escrow?.settled === true;
   const refunded = question.escrow?.refunded === true;
   const age = indexAge(question, now);
+  // A final settlement cannot change, so its indexed view is never out of
+  // date however long ago it was written. Only a pending record can lag.
+  const stale = !settled && (age === null || age > stalenessSeconds);
   return {
     question_id: question.id,
     outcome: settled
-      ? ((refunded ? "REFUNDED" : question.escrow?.outcome) as Settlement["outcome"])
+      ? ((refunded
+          ? "REFUNDED"
+          : question.escrow?.outcome) as Settlement["outcome"])
       : "PENDING",
     final: settled,
     refunded: settled && refunded,
@@ -60,7 +68,7 @@ export function settlementView(
     rounds,
     as_of: question.indexed_at ?? null,
     index_age_seconds: age,
-    stale: age === null || age > stalenessSeconds,
+    stale,
     panel_verified: panelVerified(question.panel_checks, rounds),
     panel_checks: question.panel_checks ?? [],
   };

@@ -87,7 +87,11 @@ test("a settlement attestation authenticates the publisher of an exact record", 
   await t.test("a stale or future attestation is rejected", async () => {
     for (const now of [issued + 100000, issued - 1000])
       assert.equal(
-        await verifyAttestation(attestation, { signer: SIGNER, settlement, now }),
+        await verifyAttestation(attestation, {
+          signer: SIGNER,
+          settlement,
+          now,
+        }),
         false,
       );
   });
@@ -125,6 +129,13 @@ test("the public record always states how old its indexed view is", () => {
   const lagging = settlementView(
     question({
       indexed_at: new Date(now - (stalenessSeconds + 60) * 1000).toISOString(),
+      escrow: {
+        funded: true,
+        settled: false,
+        outcome: "PENDING",
+        challenge_count: 0,
+        challenges: [],
+      },
     }),
     now,
   );
@@ -176,7 +187,13 @@ test("panel verification requires every round to meet its funded panel", () => {
   assert.equal(panelVerified(checks, 2), true);
   assert.equal(panelVerified(checks, 3), false, "an unchecked round fails");
   assert.equal(
-    panelVerified([{ round: 1, verified: true }, { round: 2, verified: false }] as any, 2),
+    panelVerified(
+      [
+        { round: 1, verified: true },
+        { round: 2, verified: false },
+      ] as any,
+      2,
+    ),
     false,
   );
   assert.equal(panelVerified([], 1), false);
@@ -209,4 +226,29 @@ test("an unverified panel is published with the settlement", () => {
   );
   assert.equal(view.panel_verified, false);
   assert.equal(view.panel_checks.length, 2);
+});
+test("a final settlement is never reported as a lagging view", () => {
+  // Its state cannot change, so flagging it stale would make a consumer
+  // refuse a settlement that is simply old and correct.
+  const now = Date.now();
+  const old = new Date(now - 30 * 24 * 3600 * 1000).toISOString();
+  const settled = settlementView(question({ indexed_at: old }), now);
+  assert.equal(settled.final, true);
+  assert.equal(settled.stale, false);
+  assert.ok(settled.index_age_seconds! > stalenessSeconds, "age stays honest");
+  const pending = settlementView(
+    question({
+      indexed_at: old,
+      escrow: {
+        funded: true,
+        settled: false,
+        outcome: "PENDING",
+        challenge_count: 0,
+        challenges: [],
+      },
+    }),
+    now,
+  );
+  assert.equal(pending.final, false);
+  assert.equal(pending.stale, true);
 });
