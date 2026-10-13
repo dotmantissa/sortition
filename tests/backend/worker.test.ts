@@ -40,6 +40,8 @@ function harness(
     watch?: boolean;
     lostDelivery?: boolean;
     overdueIndex?: boolean;
+    reconciling?: boolean;
+    childDelivered?: boolean;
   } = {},
 ) {
   const calls: { query: string; values: any[] }[] = [],
@@ -116,6 +118,10 @@ function harness(
           ]
         : [];
     if (query.startsWith("SELECT panel_checks")) return [{ panel_checks: [] }];
+    if (query.startsWith("SELECT id,kind,status,tx_hash FROM operations"))
+      return options.reconciling
+        ? [{ id: "already", kind: "confirm_payment" }]
+        : [];
     if (query.startsWith("SELECT d.*"))
       return [
         {
@@ -163,7 +169,11 @@ function harness(
     account: { address: "0xrelay" },
     chain: { isStudio: true },
     getTriggeredTransactionIds: async () =>
-      options.childFailed ? ["0xchild"] : [],
+      options.childFailed
+        ? ["0xchild"]
+        : options.childDelivered
+          ? ["0xpayment"]
+          : [],
     getTransaction: async () => ({ statusName: options.status || "ACCEPTED" }),
     getBalance: async () => 100000n,
     appealTransaction: async () => {
@@ -260,23 +270,28 @@ function harness(
             ? fakeChain
             : name === "./lifecycle"
               ? { ...lifecycle, nativeAppealsEnabled: !options.nativeDisabled }
-              : name === "./sponsorship"
-                ? { reserveSponsorship: async () => {} }
-                : name === "./security"
-                  ? {
-                      decrypt: () => "secret",
-                      deliverWebhook: async (
-                        _url: string,
-                        _body: string,
-                        _secret: string,
-                        _event: string,
-                        timestamp: number,
-                      ) => {
-                        chainCalls.push("deliver-clock:" + timestamp);
-                        chainCalls.push("deliver");
-                      },
-                    }
-                  : {},
+              : name === "./payments"
+                ? {
+                    activePaymentOperation: (claimant: string, id: string) =>
+                      sql`SELECT id,kind,status,tx_hash FROM operations WHERE claimant=${claimant} AND payment=${id}`,
+                  }
+                : name === "./sponsorship"
+                  ? { reserveSponsorship: async () => {} }
+                  : name === "./security"
+                    ? {
+                        decrypt: () => "secret",
+                        deliverWebhook: async (
+                          _url: string,
+                          _body: string,
+                          _secret: string,
+                          _event: string,
+                          timestamp: number,
+                        ) => {
+                          chainCalls.push("deliver-clock:" + timestamp);
+                          chainCalls.push("deliver");
+                        },
+                      }
+                    : {},
     setInterval: () => ({ unref() {} }),
     clearInterval() {},
     console,
@@ -576,7 +591,9 @@ test("continuous job traffic no longer starves indexing", async () => {
   const h = harness({ status: "PENDING", overdueIndex: true });
   h.jobs.push(h.job("resolve"));
   await h.exports.workerTick();
-  const index = h.calls.find((c) => c.query.startsWith("SELECT id FROM questions"));
+  const index = h.calls.find((c) =>
+    c.query.startsWith("SELECT id FROM questions"),
+  );
   assert.ok(index, "an overdue question is still indexed while a job is due");
   assert.ok(
     index!.values.includes(300),
@@ -623,9 +640,9 @@ test("a hearing receipt is checked against the panel its round was funded for", 
   full.jobs.push(op2);
   await full.exports.workerUnderTest.poll(op2);
   const [verified] = JSON.parse(
-    full.calls
-      .find((c) => c.query.startsWith("UPDATE questions SET panel_checks"))!
-      .values[0],
+    full.calls.find((c) =>
+      c.query.startsWith("UPDATE questions SET panel_checks"),
+    )!.values[0],
   );
   assert.equal(verified.observed, 7);
   assert.equal(verified.independent_validators, 6);
@@ -652,5 +669,40 @@ test("a merely slow hearing is never released by the service itself", async () =
     queued!.query.includes("NOT EXISTS") &&
       queued!.query.includes("'resolve','challenge','prepare_hearing'"),
     "the service only queues the exit when no hearing of its own is in flight",
+  );
+});
+test("one payment is reconciled once, however it was discovered", async () => {
+  // A completed withdrawal, the on chain scanner and the beneficiary can all
+  // notice the same pending payment. Two submissions in flight would leave the
+  // loser failing against the contract, which already moved the payment on.
+  const h = harness({ watch: true });
+  await h.exports.workerUnderTest.scanPayments();
+  const scanned = h.calls.find(
+    (c) =>
+      c.query.startsWith("INSERT INTO operations") &&
+      c.query.includes("'confirm_payment'"),
+  );
+  assert.ok(scanned);
+  assert.ok(
+    scanned!.query.includes("WHERE NOT EXISTS"),
+    "the scanner yields to a reconciliation already in flight",
+  );
+  const withdrawal = harness({
+    status: "FINALIZED",
+    messageHandoff: true,
+    childDelivered: true,
+  });
+  const op = withdrawal.job("withdraw");
+  withdrawal.jobs.push(op);
+  await withdrawal.exports.workerUnderTest.poll(op);
+  const queued = withdrawal.calls.find(
+    (c) =>
+      c.query.startsWith("INSERT INTO operations") &&
+      c.values.includes("confirm_payment"),
+  );
+  assert.ok(queued, "a completed withdrawal still reconciles its payment");
+  assert.ok(
+    queued!.query.includes("WHERE NOT EXISTS"),
+    "and it also yields to one already in flight",
   );
 });

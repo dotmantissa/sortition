@@ -24,6 +24,7 @@ import {
   type Address,
 } from "./chain";
 import { decrypt, deliverWebhook } from "./security";
+import { activePaymentOperation } from "./payments";
 import type { Specification } from "./types";
 import type { TransactionHash } from "genlayer-js/types";
 
@@ -180,7 +181,8 @@ async function scanPayments() {
   if (status === "pending" && id)
     statements.push(
       sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
-        VALUES(${randomUUID()},${watch.question_id},${watch.owner_id},'confirm_payment',${JSON.stringify({ claimant: watch.beneficiary, payment_id: id })}::jsonb,${"scanned-payment:" + watch.beneficiary + ":" + id})
+        SELECT ${randomUUID()},${watch.question_id},${watch.owner_id},'confirm_payment',${JSON.stringify({ claimant: watch.beneficiary, payment_id: id })}::jsonb,${"scanned-payment:" + watch.beneficiary + ":" + id}
+        WHERE NOT EXISTS(${activePaymentOperation(watch.beneficiary as string, id)})
         ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
     );
   await sql.transaction(statements);
@@ -370,6 +372,16 @@ async function queueInternal(
   payload: Record<string, unknown>,
   key: string,
 ) {
+  if (["confirm_payment", "restore_payment"].includes(kind)) {
+    // A payment can be discovered by a completed withdrawal, by the on chain
+    // scanner and by its beneficiary at once. Reconcile it once: two
+    // submissions in flight would make the loser fail against the contract.
+    await db()`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
+      SELECT ${randomUUID()},${job.question_id},${job.owner_id},${kind},${JSON.stringify(payload)}::jsonb,${key}
+      WHERE NOT EXISTS(${activePaymentOperation(String(payload.claimant), String(payload.payment_id))})
+      ON CONFLICT(owner_id,idempotency_key) DO NOTHING`;
+    return;
+  }
   await db()`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
     VALUES(${randomUUID()},${job.question_id},${job.owner_id},${kind},${JSON.stringify(payload)}::jsonb,${key})
     ON CONFLICT(owner_id,idempotency_key) DO NOTHING`;

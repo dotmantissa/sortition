@@ -11,6 +11,7 @@ import {
   nativeAppealUnavailable,
 } from "./lifecycle";
 import type { Question } from "./types";
+import { activePaymentOperation } from "./payments";
 export const actions = [
   "resolve",
   "fund",
@@ -246,7 +247,13 @@ export async function queueAction(
           409,
           "This account has no pending payment to confirm.",
         );
-      expected = undefined;
+      // The same payment may already be queued by a completed withdrawal or by
+      // the on chain scanner. Reconcile it once and return that operation.
+      const active = await activePaymentOperation(
+        owner.beneficiary,
+        String(payment.id),
+      );
+      if (active[0]) return active[0];
       await rateLimit(owner.id);
       const op = randomUUID();
       await sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${op},${id},${owner.id},'confirm_payment',${JSON.stringify({ claimant: owner.beneficiary, payment_id: payment.id })}::jsonb,${key})`;

@@ -35,6 +35,7 @@ function service(
     payment?: Record<string, unknown>;
     now?: number;
     quota?: number;
+    reconciling?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
@@ -109,12 +110,19 @@ function service(
                         return {};
                       },
                     }
-                  : m === "./security"
+                  : m === "./payments"
                     ? {
-                        digest: (s: string) =>
-                          crypto.createHash("sha256").update(s).digest("hex"),
+                        activePaymentOperation: async () =>
+                          options.reconciling
+                            ? [{ id: "already", status: "submitted" }]
+                            : [],
                       }
-                    : {},
+                    : m === "./security"
+                      ? {
+                          digest: (s: string) =>
+                            crypto.createHash("sha256").update(s).digest("hex"),
+                        }
+                      : {},
   });
   return { exports, calls, reads };
 }
@@ -247,7 +255,8 @@ test("the bounded exit is refused until a funded hearing is actually overdue", a
       undefined,
       "early",
     ),
-    (e: HttpError) => e.status === 409 && /not past its deadline/.test(e.message),
+    (e: HttpError) =>
+      e.status === 409 && /not past its deadline/.test(e.message),
   );
   // Past the deadline with no ruling for the round, anyone may release it.
   const ready = service({ escrow: overdue, quota: 0 });
@@ -290,8 +299,30 @@ test("a beneficiary can queue confirmation of its own pending payment only", asy
   assert.equal(op.status, "queued");
   assert.ok(
     pending.calls.some(
-      (q) => q.includes("INSERT INTO operations") && q.includes("confirm_payment"),
+      (q) =>
+        q.includes("INSERT INTO operations") && q.includes("confirm_payment"),
     ),
+  );
+  // The same payment may already be queued by a completed withdrawal or by the
+  // on chain scanner. That operation is returned rather than duplicated, which
+  // would leave the loser failing against the contract.
+  const already = service({
+    escrow: { settled: true, beneficiary: "0xwallet" },
+    payment: { id: "4", amount: "12", status: "pending" },
+    reconciling: true,
+    quota: 0,
+  });
+  const adopted = await already.exports.queueAction(
+    { id: "challenger", beneficiary: "0xwallet" },
+    "q",
+    "confirm_payment",
+    undefined,
+    "confirm-again",
+  );
+  assert.equal(adopted.id, "already");
+  assert.ok(
+    !already.calls.some((q) => q.includes("INSERT INTO operations")),
+    "no second reconciliation is queued",
   );
 });
 test("the published self funded bond is the exact escalating stake", async () => {
