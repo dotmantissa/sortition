@@ -15,7 +15,9 @@ import {
   statusName,
 } from "../lib/chain";
 import type { TransactionHash } from "genlayer-js/types";
+import { panelVerification } from "../lib/chain";
 import { registerQuestion, queueAction } from "../lib/service";
+import { BURN_TREASURY } from "../lib/deployment";
 import { workerTick } from "../lib/worker";
 nextEnv.loadEnvConfig(process.cwd());
 const statePath = "deployments/live-test.json";
@@ -57,7 +59,7 @@ if (!state.question_id) {
   const created = await registerQuestion(
     owner,
     { specification: spec, fee: "10", base_bond: "2" },
-    "studio-verification-registration-v7",
+    "studio-verification-registration-v8",
   );
   state.question_id = created.id;
   save();
@@ -95,6 +97,9 @@ const registered = object(
 );
 assert.ok(registered.docket_address);
 const actualSpec = registered.specification;
+function escrowRounds(docket: Record<string, unknown>) {
+  return Array.isArray(docket.rounds) ? docket.rounds.length : 0;
+}
 function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
@@ -166,10 +171,21 @@ for (const kind of ["fund", "resolve", "challenge", "finalize"] as const) {
       hash: op.tx_hash as TransactionHash,
     });
     assert.ok(executionSucceeded(receipt));
-    assert.equal(
-      (object(receipt.consensus_data).validators as unknown[]).length + 1,
-      5,
+    // The panel is checked against the requirement the contract itself
+    // committed to when this round was funded, not against a local constant.
+    const round = (rounds.at(-1) || {}) as { required_validators?: number };
+    const committed = Number(round.required_validators || 0);
+    assert.equal(committed, 5 + 2 * Number(escrowRounds(docket) - 1));
+    const check = panelVerification(publicReceipt(receipt), committed);
+    assert.ok(
+      check.verified,
+      `hearing seated ${check.observed} of ${committed} with ${check.independent_validators} independent validators`,
     );
+    const receipts = Array.isArray(state.hearing_panels)
+      ? (state.hearing_panels as unknown[])
+      : [];
+    receipts.push({ round: committed && rounds.length, ...check });
+    state.hearing_panels = receipts;
     state.resolution_receipt = publicReceipt(receipt);
     save();
     console.log(
@@ -180,18 +196,28 @@ for (const kind of ["fund", "resolve", "challenge", "finalize"] as const) {
 }
 const escrow = object(await readFinal(addresses().vault, "get_account", [id]));
 assert.equal(escrow.settled, true);
+assert.equal(escrow.refunded, false);
 assert.equal(escrow.outcome, "YES");
 assert.equal(escrow.challenge_count, 1);
-const credit = await readFinal(addresses().vault, "get_credit", [
-  owner.beneficiary,
-]);
-if (state.native_withdrawal_verified)
-  assert.equal(BigInt(credit as string), 0n);
-else assert.ok(BigInt(credit as string) >= 12n);
+// The challenge argued for the losing outcome. Its bond and the resolution fee
+// are forfeited to a treasury the relay cannot spend from, so sponsoring a
+// losing challenge is a real cost rather than a round trip.
+const relayCredit = BigInt(
+  (await readFinal(addresses().vault, "get_credit", [
+    owner.beneficiary,
+  ])) as string,
+);
+assert.equal(relayCredit, 0n, "a losing sponsored bond must not return");
+const forfeited = BigInt(
+  (await readFinal(addresses().vault, "get_credit", [BURN_TREASURY])) as string,
+);
+assert.ok(forfeited >= 12n, "the bond and fee are forfeited to the treasury");
 state.verified = true;
 state.final_outcome = escrow.outcome;
-state.credit = credit;
+state.relay_credit = relayCredit.toString();
+state.treasury_credit = forfeited.toString();
+state.treasury = BURN_TREASURY;
 save();
 console.log(
-  "Live integration passed. Factory, fee, evidence, bonded rehearing and settlement credit verified.",
+  "Live integration passed. Factory, fee, evidence, committed panels, bonded rehearing, settlement and treasury forfeiture verified.",
 );

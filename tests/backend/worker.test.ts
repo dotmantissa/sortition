@@ -639,3 +639,18 @@ test("the requested panel follows the contract's own commitment", async () => {
   assert.ok(h.chainCalls.includes("write:resolve"));
   assert.equal(h.exports.workerUnderTest ? true : false, true);
 });
+test("a merely slow hearing is never released by the service itself", async () => {
+  const h = harness({ overdue: true, messageHandoff: true });
+  await h.exports.workerUnderTest.updateQuestion("first");
+  const queued = h.calls.find(
+    (c) =>
+      c.query.startsWith("INSERT INTO operations") &&
+      c.query.includes("'claim_timeout'"),
+  );
+  assert.ok(queued);
+  assert.ok(
+    queued!.query.includes("NOT EXISTS") &&
+      queued!.query.includes("'resolve','challenge','prepare_hearing'"),
+    "the service only queues the exit when no hearing of its own is in flight",
+  );
+});

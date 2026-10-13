@@ -12,11 +12,13 @@ There is no exchange here. No positions, no liquidity pool, and no house view. A
 
 Register a question through the email console or API. Lock two to five named sources, choose how disagreements are handled, name a tie source, and write down when the honest answer is unresolvable. Each question gets its own contract address and public docket.
 
-Request a resolution after the question closes. Each completed validator reading fetches every registered source and independently extracts the facts. Studio may stop remaining validators once a quorum forms; idle receipts are shown as idle. Consensus checks the answer, the intermediate readings, source availability, global uncertainty conditions and every stored evidence field. The record includes evidence digests, quotations, jury receipts and votes.
+Request a resolution after the question closes. The registered relay gets a head start so its panel policy applies first; once that grace period expires, any account can ask for the jury, so a lost key or an unwilling operator cannot strand a funded docket. Each completed validator reading fetches every registered source and independently extracts the facts, as of the locked closing time. The model must quote the passage carrying the fact; the contract locates that passage in the document it fetched and keeps the window around it. A second audit stage reads those real document windows and decides both whether each quotation supports its value and whether the uncertainty rule applies. A temporary outage fails the hearing instead of becoming a verdict.
 
-Challenge a reading with a bond. Bonds double each round and the requested jury grows from 5 to 7 to 9 validators. GenLayer chooses the participants. Native protocol appeals are paused on this Studio deployment after a rollback failed live verification. Bonded hearings remain available. A fresh application challenge window starts after the ruling is final.
+Challenge a reading with a bond. Bonds double each round, up to three bonded rounds, and the panel each round is funded for is committed on chain: 5, then 7, 9 and 11. GenLayer chooses the participants. Every hearing receipt is checked against that commitment and published, because GenLayer does not expose the seated panel to contract code. Native protocol appeals are paused on this Studio deployment after a rollback failed live verification; the contracts are written to tolerate one anyway. A fresh application challenge window starts after the ruling is final.
 
-Consume a final settlement through REST, JSON RPC, a signed webhook, or the React widget. Unresolvable is a normal outcome. Your venue decides what to refund when the agreed evidence cannot settle the question.
+Get your money back if the jury never answers. Every funded hearing carries a deadline. Once it passes with no ruling, anyone can release the docket and every fee and bond returns to the account that paid it, as the final outcome `REFUNDED`. No relay, no operator and no further consensus is required.
+
+Consume a final settlement through REST, JSON RPC, a signed webhook, or the React widget. Unresolvable and refunded are both normal outcomes. Your venue decides what to refund when the agreed evidence cannot settle the question.
 
 ## Run it locally
 
@@ -43,7 +45,7 @@ Run the worker in a second terminal:
 npm run worker
 ```
 
-The worker processes durable jobs from Neon. Leaving the page does not lose a submitted action. Registration waits for the factory and vault messages to finish. Fees and bonds are sponsored by the server relay within explicit payment and daily limits. Sponsored bond proceeds return to the relay. The claimant cannot turn a free hearing into a withdrawal. A funded relay is needed for nonzero amounts.
+The worker processes durable jobs from Neon. Leaving the page does not lose a submitted action. Registration waits for the factory and vault messages to finish. Fees and bonds are sponsored by the server relay within explicit payment and daily limits, and a losing sponsored bond is forfeited to a treasury address nobody can spend from, so a free hearing cannot become a withdrawal. A sponsored bond still costs the challenger nothing personally, so the console also publishes the exact vault call for posting a bond from your own wallet. A funded relay is needed for nonzero sponsored amounts.
 
 ## Verify the contracts
 
@@ -56,15 +58,16 @@ npm run typecheck
 npm run build
 npm run test:browser
 npm run test:live
+npm run test:exit
 npm run test:remediation
 npm run test:venue
 npx tsx scripts/verify-payout.ts
 npx tsx scripts/verify-service.ts
 ```
 
-Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, missing evidence, malformed model replies, validator comparison, escalating bonds, settlement boundaries and payouts. Test fixtures are confined to the test suite.
+Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, absent versus temporarily unavailable sources, quotation binding and support, malformed model replies, validator comparison, escalating bonds, bounded rounds, committed panels, relay rotation, settlement boundaries, refunds and payouts. Test fixtures are confined to the test suite.
 
-The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks the larger panel and finalizes settlement. The payout verification then checks actual native value delivery and zero remaining credit. It keeps resumable public progress in `deployments/live-test.json`. The remediation verifier also proves distinct sponsor accounting, signed consumer delivery, duplicate handling and rejection of altered event IDs. Its test API keys are confined to a private local file and revoked after verification. These server integration checks do not claim to verify an email inbox.
+The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks each hearing against the panel its round was funded for, finalizes settlement and confirms the losing bond left the relay for the burn treasury. The exit test proves the other ending: it funds a hearing, never asks for it, waits out the deadline, releases it permissionlessly, and verifies the exact refund arrives as native value and that the beneficiary can confirm delivery without the relay. Both keep resumable public progress in `deployments/live-test.json` and `deployments/live-exit.json`. The remediation verifier also proves distinct sponsor accounting, signed consumer delivery, duplicate handling and rejection of altered event IDs. Its test API keys are confined to a private local file and revoked after verification. These server integration checks do not claim to verify an email inbox.
 
 ## Connect a venue
 
@@ -82,7 +85,32 @@ The current Studio addresses and verified transaction hashes are in [the deploym
 
 The Next.js application can run on Vercel or any Node host. Set server environment variables through the host's secret manager. Run `scripts/worker.ts` as a persistent process, or call the authenticated worker endpoint from a scheduler. A sample systemd unit is included in [operations notes](docs/operations.md). The installed worker runs under systemd with user lingering enabled. A scheduled GitHub Actions worker also calls the production endpoint using an encrypted repository secret.
 
-An API response alone is not a trustless bridge to another chain. A market contract must use a verified GenLayer state bridge or its own authenticated oracle before making payouts. Studio uses test GEN and is intended for development.
+## What this project has not demonstrated
+
+These are boundaries, not pending work items, and they are stated here so no
+reader has to infer them.
+
+- **No trustless bridge.** `GET /api/questions/:id/settlement?attest=true`
+  returns an operator signed statement that an EVM contract can check with
+  `ecrecover`. It authenticates _the publisher_, not GenLayer consensus. A
+  market contract that moves real money needs a verified GenLayer state bridge
+  or light client; this project does not provide one.
+- **No external venue settlement.** The reference consumer records one decision
+  per question in its own ledger. It does not hold, pay or alter a Polymarket
+  position, and it does not replace Polymarket's resolver.
+- **Production consensus is unproven.** Studio uses test GEN and supports
+  leader only execution. Panel requirements are committed on chain and every
+  receipt is checked against them, but a jury security claim needs validation on
+  the intended production network.
+- **Sponsored bonds are not economic deterrence.** A challenger using the
+  hosted console risks none of their own money. The contract supports genuinely
+  user funded bonds and the console publishes the exact call, but the deterrence
+  claim needs real user funded bonds in production.
+- **Public reads are indexed state.** Every settlement response carries `as_of`,
+  `index_age_seconds` and `stale`, so a lagging view is visible rather than
+  silent. A direct on chain action can be newer than the indexed record.
+
+Studio uses test GEN and is intended for development.
 
 For dependency maintenance and secret handling, read [security notes](docs/security.md).
 

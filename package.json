@@ -16,7 +16,8 @@
     "test:browser": "playwright test",
     "format": "prettier --write app components lib scripts/*.ts integrations tests/backend tests/browser *.ts *.mjs *.json",
     "test:remediation": "tsx scripts/verify-remediation.mjs",
-    "test:venue": "tsx scripts/verify-venue.mjs"
+    "test:venue": "tsx scripts/verify-venue.mjs",
+    "test:exit": "tsx scripts/verify-exit.ts"
   },
   "dependencies": {
     "@farcaster/frame-sdk": "^0.0.64",

@@ -12,8 +12,14 @@ Send `POST /api/questions` with `Authorization: Bearer YOUR_API_KEY`, `Content-T
     "question": "Your complete question",
     "criteria": "What counts as YES and what counts as NO",
     "sources": [
-      { "name": "First authority", "url": "https://your-authority.example/result" },
-      { "name": "Second authority", "url": "https://your-second-authority.example/result" }
+      {
+        "name": "First authority",
+        "url": "https://your-authority.example/result"
+      },
+      {
+        "name": "Second authority",
+        "url": "https://your-second-authority.example/result"
+      }
     ],
     "tie_break_url": "https://your-authority.example/result",
     "disagreement_rule": "unanimous",
@@ -37,13 +43,25 @@ Send `POST /api/questions/:id/actions` with the same authentication and a new id
 { "action": "resolve" }
 ```
 
-Actions are `fund`, `resolve`, `challenge`, `finalize`, `withdraw` and `open_round`. Native `protocol_appeal` requests return 409 on the current Studio deployment following a failed live rollback; use a bonded hearing. A challenge also requires `expected_outcome`, which is YES, NO or UNRESOLVABLE and must differ from the current result. A funded challenge queues the larger jury automatically. Any email operator can challenge a public docket. Fee, initial resolution and finalization actions belong to the registered operator. A participant can retry an already funded rehearing. The worker opens the full application challenge window after protocol finality; `open_round` can retry that preparation. Bond credits belong to the economic payer. Sponsored bonds return to the relay; self funded winning bonds return to their payer. Losing bonds with no winning challenge are forfeited to treasury.
+Actions are `fund`, `resolve`, `challenge`, `finalize`, `withdraw`, `claim_timeout`, `confirm_payment` and `open_round`. Native `protocol_appeal` requests return 409 on the current Studio deployment following a failed live rollback; use a bonded hearing. A challenge also requires `expected_outcome`, which is YES, NO or UNRESOLVABLE and must differ from the current result. A funded challenge queues the larger jury automatically.
+
+Only `fund` is reserved for the question operator, because it is the operator's own payment and an unfunded question locks nothing. Resolution, settlement, release and challenge are open to any authenticated account, so an absent operator cannot obstruct a docket. `resolve` is accepted from a non operator once the registered relay's grace period after the close has expired, or for a rehearing that is already funded.
+
+`claim_timeout` releases a funded hearing whose deadline passed without the ruling that round owes. Every bond returns to the account that paid it, the resolution fee returns to its funder, and the settlement becomes `REFUNDED`. It returns 409 while the hearing is still within its deadline or already has a ruling to finalize. The same call exists on the vault contract and needs no account here at all.
+
+`withdraw` belongs to the caller's own beneficiary. It requires a stake in the escrow and real withdrawable credit, and it does not occupy the question's exclusive action slot. `confirm_payment` accepts delivery of your own pending payment, which unblocks your next withdrawal without waiting for the relay.
+
+Bond credits belong to the economic payer. Sponsored bonds return to the relay; self funded winning bonds return to their payer. Losing bonds with no winning challenge, and resolution fees, are forfeited to the deployed treasury, which is an unspendable address rather than the relay. An authenticated docket read includes `self_funded_challenge`: the exact vault contract, function, arguments and value for posting a bond from your own wallet, so a dispute can carry a real personal stake.
 
 Writes return an operation ID and queued status. An authenticated docket read includes your operations and their public transaction hashes. `needs_review` means submission was interrupted before a hash was durably recorded. Do not resubmit money until the relay history has been reconciled.
 
 ## Consume settlement
 
-`GET /api/questions/:id/settlement` returns the final vault outcome or PENDING. Check `final`, the question ID and the locked criteria hash. Treat UNRESOLVABLE according to your venue's refund policy. Polling is available across origins without exposing an API key.
+`GET /api/questions/:id/settlement` returns the final vault outcome or PENDING. Check `final`, the question ID and the locked criteria hash. Treat UNRESOLVABLE according to your venue's refund policy, and `REFUNDED` as a final non adjudication: the funded hearing passed its deadline, every payer was repaid and no verdict was reached. Polling is available across origins without exposing an API key.
+
+The response also carries `as_of`, `index_age_seconds` and `stale`, because it is this service's indexed view of finalized contract state rather than a live read, and `panel_verified` with `panel_checks`, which compare each hearing's public receipt with the panel its round was funded for. Do not settle value on a record whose `panel_verified` is `false`.
+
+Add `?attest=true` for an operator signed attestation. It is an EIP-191 signature over a newline separated statement of exactly these fields, in this order: `sortition.settlement.v1`, network, question ID, criteria hash, lowercased docket address, round count, outcome, `final` or `provisional`, and the issuing timestamp. An EVM contract can rebuild that string and recover the signer. It authenticates the publisher of the record; it does not prove GenLayer consensus to another chain, and it is not a bridge. Use `verifyAttestation` in `lib/attestation.ts` off chain.
 
 ## JSON RPC
 
@@ -51,7 +69,7 @@ Writes return an operation ID and queued status. An authenticated docket read in
 
 ## Verify a webhook
 
-Final settlements produce `question.settled`. The headers contain `Sortition-Event-Id` and `Sortition-Signature: t=TIMESTAMP,v1=HEX_SIGNATURE`. Compute HMAC SHA256 over `TIMESTAMP + "." + EVENT_ID + "." + RAW_REQUEST_BODY` with your secret. Compare in constant time, reject timestamps older than five minutes and deduplicate both the authenticated event ID and the pinned settlement identity before applying the result.
+Final settlements produce `question.settled`, including a released hearing, which carries `"outcome": "REFUNDED"` and `"refunded": true`. The headers contain `Sortition-Event-Id` and `Sortition-Signature: t=TIMESTAMP,v1=HEX_SIGNATURE`. Compute HMAC SHA256 over `TIMESTAMP + "." + EVENT_ID + "." + RAW_REQUEST_BODY` with your secret. Compare in constant time, reject timestamps older than five minutes and deduplicate both the authenticated event ID and the pinned settlement identity before applying the result.
 
 Use [the verification helper](../integrations/verify-webhook.ts). Delivery retries use increasing delays and stop after ten attempts. No redirect is followed. Destinations are checked again at delivery and DNS is pinned for that request.
 

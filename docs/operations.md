@@ -40,3 +40,26 @@ When changing a contract, run lint and direct tests first, deploy a new registry
 Studio may report a timestamp different from the operating system clock. Sortition reads the network timestamp for registration and appeal controls. Do not replace it with server wall time.
 
 Webhook signing uses the timestamp returned by Neon with the outbox row. A worker host clock may differ from the receiver clock; using a trusted shared timestamp avoids signing every event outside its replay window. Receivers still reject stale events.
+
+## Funded hearing deadlines
+
+Every escrow carries the hearing deadline and bonded round limit that the
+registry was deployed with. The Studio deployment uses a deliberately short
+30 minute hearing timeout so the bounded exit is demonstrable on a development
+network. **A production deployment must set this well beyond its slowest
+expected hearing**, including evidence retrieval, consensus and any appeal, or a
+hearing that is merely slow becomes releasable while it is still running.
+
+The service only queues a release when it has no hearing of its own in flight
+for that question. The permissionless contract call has no such restraint, which
+is the point: it is the exit that does not depend on this service running.
+
+## Checking a hearing against its panel
+
+`questions.panel_checks` records, per round, the panel the contract committed
+to, the participants the receipt actually names, how many were independent
+validators, and whether the receipt met the commitment. `GET
+/api/questions/:id/settlement` publishes the same thing. A `verified: false`
+entry means a hearing did not seat its funded panel — on Studio this is usually
+leader only execution. Treat it as a reason not to settle value, and re-run the
+hearing on a network that seats real panels.

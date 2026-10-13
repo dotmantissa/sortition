@@ -98,9 +98,14 @@ async function updateQuestion(id: string) {
       );
   }
   if (timeoutClaimable(escrow, now))
-    // The bounded exit is part of the service, not only of the contract.
+    // The bounded exit is part of the service, not only of the contract. A
+    // hearing that is merely slow is left alone: only the permissionless
+    // contract call can release one while this service is still trying.
     statements.push(
-      sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${randomUUID()},${id},${configured[0].owner_id},'claim_timeout','{}'::jsonb,${"timeout:" + id + ":" + String(escrow.hearing_deadline)}) ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
+      sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
+        SELECT ${randomUUID()},${id},${configured[0].owner_id},'claim_timeout','{}'::jsonb,${"timeout:" + id + ":" + String(escrow.hearing_deadline)}
+        WHERE NOT EXISTS(SELECT 1 FROM operations WHERE question_id=${id} AND kind IN ('resolve','challenge','prepare_hearing') AND status IN ('queued','submitting','submitted'))
+        ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
     );
   await sql.transaction(statements);
 }

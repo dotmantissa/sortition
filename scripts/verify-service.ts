@@ -5,11 +5,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { db } from "../lib/db";
 import { digest } from "../lib/security";
+import { verifyAttestation } from "../lib/attestation";
 nextEnv.loadEnvConfig(process.cwd());
 const state = JSON.parse(readFileSync("deployments/live-test.json", "utf8"));
+const exit = JSON.parse(readFileSync("deployments/live-exit.json", "utf8"));
 assert.ok(
-  state.native_withdrawal_verified,
-  "Finish the native payment proof first.",
+  exit.native_withdrawal_verified,
+  "Finish the native payment proof in scripts/verify-exit.ts first.",
 );
 const base = process.env.SORTITION_URL || "https://sortition.vercel.app";
 const id = state.question_id;
@@ -21,6 +23,27 @@ assert.equal(settlement.final, true);
 assert.equal(settlement.outcome, "YES");
 assert.equal(settlement.criteria_hash, state.criteria_hash);
 assert.equal(settlement.rounds, 2);
+assert.equal(settlement.panel_verified, true);
+assert.equal(typeof settlement.index_age_seconds, "number");
+// The signed attestation is offered on request and verifies against the relay.
+const attested = await (
+  await fetch(`${base}/api/questions/${id}/settlement?attest=true`)
+).json();
+assert.ok(
+  await verifyAttestation(attested.attestation, {
+    signer: attested.attestation.signer,
+    settlement: attested,
+  }),
+  "the published attestation must verify against its own statement",
+);
+assert.match(attested.attestation.disclaimer, /not GenLayer consensus/);
+const refundResponse = await fetch(
+  `${base}/api/questions/${exit.question_id}/settlement`,
+);
+const refund = await refundResponse.json();
+assert.equal(refund.outcome, "REFUNDED");
+assert.equal(refund.final, true);
+assert.equal(refund.refunded, true);
 const rpc = await fetch(`${base}/api/rpc`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -54,12 +77,22 @@ try {
   const owned = await ownedResponse.json();
   assert.equal(owned.can_operate, true);
   assert.equal(owned.credit, "0");
+  const exitResponse = await fetch(
+    `${base}/api/questions/${exit.question_id}`,
+    {
+      headers,
+    },
+  );
+  assert.equal(exitResponse.status, 200);
+  const exitRecord = await exitResponse.json();
   assert.ok(
-    owned.operations.some(
+    exitRecord.operations.some(
       (op: { kind: string; status: string }) =>
         op.kind === "withdraw" && op.status === "complete",
     ),
+    "the refunded payout is indexed as a completed withdrawal",
   );
+  assert.equal(exitRecord.escrow.outcome, "REFUNDED");
   const mine = await fetch(`${base}/api/questions?mine=true`, { headers });
   assert.equal(mine.status, 200);
   assert.ok(
@@ -80,6 +113,8 @@ try {
         settlement,
         checks: [
           "Final REST settlement and widget CORS",
+          "Verified hearing panels and signed settlement attestation",
+          "Refunded bounded exit published as a final non adjudication",
           "JSON RPC docket agrees with settlement",
           "Unsigned operator access rejected",
           "Hashed API key authenticates its owner",
