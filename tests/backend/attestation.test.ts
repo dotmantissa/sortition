@@ -272,3 +272,22 @@ test("a final settlement is never reported as a lagging view", () => {
   assert.equal(pending.final, false);
   assert.equal(pending.stale, true);
 });
+
+test("a refund retains the vault final round even when native rollback removes its docket", () => {
+  const q = question({
+    docket: { rounds: [], unavailable: true },
+    escrow: {
+      funded: true,
+      settled: true,
+      refunded: true,
+      final_round: 1,
+      challenge_count: 1,
+      challenges: [],
+      outcome: "REFUNDED",
+    },
+  });
+  const view = settlementView(q);
+  assert.equal(view.final, true);
+  assert.equal(view.rounds, 1);
+  assert.equal(view.outcome, "REFUNDED");
+});

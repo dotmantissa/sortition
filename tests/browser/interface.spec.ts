@@ -14,7 +14,9 @@ test("public record, email access and theme remain usable on desktop and mobile"
     fullPage: true,
   });
   const toggle = page.getByRole("button", { name: "Use dark mode" });
-  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Sign in", exact: true }),
+  ).toBeEnabled();
   await expect(toggle).toBeVisible();
   await toggle.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -138,7 +140,11 @@ test("live public docket preserves locked sources and exposes independent jury r
       page.locator(`.source-record a[href="${source.url}"]`),
     ).toBeVisible();
   }
-  await expect(page.locator(".evidence-value").first()).toContainText("200=ok");
+  const expectedValue = question.docket.rounds.at(-1).sources[0].value;
+  expect(expectedValue).toBeTruthy();
+  await expect(page.locator(".evidence-value").first()).toContainText(
+    expectedValue,
+  );
   if (
     question.receipts.some(
       (r: { receipt: { transaction_type?: number } }) =>
@@ -149,16 +155,21 @@ test("live public docket preserves locked sources and exposes independent jury r
       page.getByRole("heading", { name: "Native payment", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText("Native value: 12 GEN wei.", { exact: false }),
+      page.getByText(
+        `Native value: ${question.receipts.find((r: { receipt: { transaction_type?: number } }) => r.receipt.transaction_type === 0).receipt.value} GEN wei.`,
+        { exact: false },
+      ),
     ).toBeVisible();
   }
   const juror = page
     .locator(".juror")
     .filter({ has: page.locator(".juror-reading") })
-    .filter({ hasText: "agree" })
+    .filter({ has: page.locator(".juror-vote", { hasText: /^agree$/ }) })
     .first();
   await juror.locator("summary").first().click();
-  await expect(juror.locator(".juror-reading").first()).toContainText("200=ok");
+  await expect(juror.locator(".juror-reading").first()).toContainText(
+    expectedValue,
+  );
   await page.screenshot({
     path: "test-results/live-docket-desktop.png",
     fullPage: true,

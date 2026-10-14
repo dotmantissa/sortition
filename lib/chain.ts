@@ -370,3 +370,40 @@ export async function withdrawalTransaction(
   }
   return null;
 }
+
+/** Enough seats for completed quorum, bounded by the actual Studio pool. */
+export function jurySubmissionPanel(required: number, available: number) {
+  if (
+    !Number.isInteger(required) ||
+    required < 1 ||
+    !Number.isInteger(available) ||
+    available < required
+  )
+    throw Error(
+      "Preparation failed: the network cannot seat this funded jury yet. Its timeout remains available.",
+    );
+  return Math.min(2 * required - 1, available, 101);
+}
+let cachedJuryPool: { available: number; at: number } | null = null;
+export async function availableJuryPanel(required: number) {
+  if (!cachedJuryPool || Date.now() - cachedJuryPool.at > 60000) {
+    const response = await fetch(
+      process.env.GENLAYER_RPC_URL || "https://studio.genlayer.com/api",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "sim_getAllValidators",
+          params: [],
+        }),
+      },
+    );
+    const data = await response.json();
+    if (!response.ok || !Array.isArray(data.result))
+      throw Error("Preparation failed: jury availability could not be read.");
+    cachedJuryPool = { available: data.result.length, at: Date.now() };
+  }
+  return jurySubmissionPanel(required, cachedJuryPool.available);
+}

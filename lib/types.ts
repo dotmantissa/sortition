@@ -21,6 +21,8 @@ export type Specification = {
 };
 export type Evidence = Source & {
   reachable: boolean;
+  temporal_support?: boolean;
+  evidence_reason?: string;
   value: string;
   position: string;
   digest: string;
@@ -103,6 +105,7 @@ export type Question = {
   };
   escrow?: {
     version?: number;
+    final_round?: number;
     opened_round?: number;
     round_deadline?: number;
     hearing_deadline?: number;

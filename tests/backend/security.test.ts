@@ -258,3 +258,12 @@ test("rotation history keeps juror addresses and discards their secret configura
   });
   assert.ok(!JSON.stringify(receipt).includes("must disappear"));
 });
+
+test("completed-jury requests respect the actual pool at the largest bonded round", async () => {
+  const { jurySubmissionPanel } = await import("../../lib/chain");
+  assert.equal(jurySubmissionPanel(5, 20), 9);
+  assert.equal(jurySubmissionPanel(7, 20), 13);
+  assert.equal(jurySubmissionPanel(9, 20), 17);
+  assert.equal(jurySubmissionPanel(11, 20), 20);
+  assert.throws(() => jurySubmissionPanel(5, 4), /cannot seat/);
+});

@@ -44,7 +44,7 @@ export function Docket({ initial }: { initial: Question }) {
   const [expected, setExpected] = useState<Outcome>("NO");
   const [time, setTime] = useState(0);
   const { authenticated, login, getAccessToken } = usePrivy();
-  const latest = q.docket?.rounds.at(-1);
+  const latest = q.docket?.rounds?.at(-1);
   const active = q.operations?.some((o) =>
     ["queued", "submitted", "submitting", "needs_review"].includes(o.status),
   );
@@ -103,7 +103,7 @@ export function Docket({ initial }: { initial: Question }) {
   const outcome = q.escrow?.settled ? q.escrow.outcome : latest?.outcome;
   const pendingRehearing = fundedRehearing(
     q.escrow,
-    q.docket?.rounds.length || 0,
+    q.docket?.rounds?.length || 0,
   );
   const waitingWindow =
     Number(q.escrow?.version) >= 2 &&
@@ -218,6 +218,16 @@ export function Docket({ initial }: { initial: Question }) {
                           ? "Source reached by the jury"
                           : "Source could not be reached"}
                       </p>
+                      {reading.evidence_reason ? (
+                        <p>
+                          {reading.evidence_reason === "incomplete_document"
+                            ? "This document exceeds the inspection limit. Its omitted portions cannot support a conclusive outcome."
+                            : reading.evidence_reason ===
+                                "historical_snapshot_mismatch"
+                              ? "This retrieved document differs from the locked historical snapshot."
+                              : "The evidence does not establish the state at the required observation time."}
+                        </p>
+                      ) : null}
                       {reading.value ? (
                         <p className="evidence-value">
                           Extracted value: {reading.value}
@@ -268,7 +278,7 @@ export function Docket({ initial }: { initial: Question }) {
                   ) : null}
                 </div>
               ))}
-            {q.docket?.rounds.length ? (
+            {q.docket?.rounds?.length ? (
               q.docket.rounds.map((r) => (
                 <article className="round-record" key={r.round}>
                   <div className="round-header">
@@ -289,10 +299,10 @@ export function Docket({ initial }: { initial: Question }) {
                   )}
                   {panelCheck(r.round) ? (
                     <p>
-                      Panel funded for {panelCheck(r.round)!.required}, seated{" "}
-                      {panelCheck(r.round)!.observed} with{" "}
-                      {panelCheck(r.round)!.independent_validators} independent
-                      validator
+                      Panel funded for {panelCheck(r.round)!.required},
+                      completed {panelCheck(r.round)!.observed} unique members
+                      with {panelCheck(r.round)!.independent_validators}{" "}
+                      independent validator
                       {panelCheck(r.round)!.independent_validators === 1
                         ? ""
                         : "s"}
@@ -325,8 +335,8 @@ export function Docket({ initial }: { initial: Question }) {
                     : time <
                         (q.specification.resolution_timestamp ??
                           q.specification.close_timestamp)
-                      ? "The rules are sealed. Evidence will be read after the question closes."
-                      : "The question has closed. A funded resolution request starts the hearing."}
+                      ? "The rules are sealed. Evidence will be read after resolution readiness."
+                      : "Resolution is eligible. A funded request starts a candidate hearing; its finalized jury must then be verified."}
                 </p>
               </div>
             )}

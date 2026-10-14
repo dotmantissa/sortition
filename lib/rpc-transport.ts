@@ -2,6 +2,8 @@ import { Agent, fetch as request } from "undici";
 
 const reads = new Set([
   "gen_call",
+  "sim_getAllValidators",
+  "sim_getTransactionsForAddress",
   "gen_getContractSchema",
   "eth_call",
   "eth_gasPrice",

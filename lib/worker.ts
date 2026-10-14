@@ -12,6 +12,7 @@ import { reserveSponsorship } from "./sponsorship";
 import {
   chain,
   panelSize,
+  availableJuryPanel,
   panelVerification,
   networkClock,
   readFinal,
@@ -128,7 +129,12 @@ async function updateQuestion(id: string) {
     // notification cannot execute. Never hide that refund behind a view error.
     if (escrow.settled !== true || escrow.refunded !== true)
       throw Error("Docket state unavailable");
-    docket = { ...object(configured[0].docket), unavailable: true };
+    const prior = object(configured[0].docket);
+    docket = {
+      ...prior,
+      rounds: Array.isArray(prior.rounds) ? prior.rounds : [],
+      unavailable: true,
+    };
   }
   const spec = registered.specification as Specification;
   const rounds = Array.isArray(docket.rounds) ? docket.rounds : [];
@@ -295,8 +301,8 @@ async function scanPayments() {
   if (status === "pending" && id && (!needsProof || proofTx))
     statements.push(
       sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
-        SELECT ${randomUUID()},${watch.question_id},${watch.owner_id},${reconciliation},${JSON.stringify({ claimant: watch.beneficiary, payment_id: id, withdrawal_tx: proofTx || undefined })}::jsonb,${"scanned-payment:" + watch.beneficiary + ":" + id}
-        WHERE NOT EXISTS(${activePaymentOperation(watch.beneficiary as string, id)})
+        SELECT ${randomUUID()},${watch.question_id},${watch.owner_id},${reconciliation},${JSON.stringify({ claimant: watch.beneficiary, payment_id: id, withdrawal_tx: proofTx || undefined })}::jsonb,${"scanned-payment:" + watch.vault_address + ":" + watch.beneficiary + ":" + id}
+        WHERE NOT EXISTS(${activePaymentOperation(watch.beneficiary as string, id, watch.vault_address as string)})
         ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
     );
   await sql.transaction(statements);
@@ -413,7 +419,9 @@ async function submit(job: Job, token: string) {
       const committed = Number(docket.required_validators || 0);
       client.chain.defaultNumberOfInitialValidators =
         committed > 0
-          ? Math.min(2 * committed - 1, 101)
+          ? Number(escrow.version) >= 5
+            ? await availableJuryPanel(committed)
+            : committed
           : panelSize(
               Math.min(Number(escrow.challenge_count), maxBondedRounds),
             );
@@ -467,7 +475,7 @@ async function submit(job: Job, token: string) {
         let withdrawalTx = job.payload.withdrawal_tx;
         if (!withdrawalTx) {
           const prior =
-            await db()`SELECT tx_hash FROM operations WHERE kind='withdraw' AND payload->>'claimant'=${job.payload.claimant!} AND tx_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1`;
+            await db()`SELECT o.tx_hash FROM operations o JOIN questions q ON q.id=o.question_id WHERE o.kind='withdraw' AND o.payload->>'claimant'=${job.payload.claimant!} AND q.vault_address=${a.vault} AND o.tx_hash IS NOT NULL ORDER BY o.created_at DESC LIMIT 1`;
           withdrawalTx = prior[0]?.tx_hash;
         }
         withdrawalTx ??=
@@ -519,7 +527,7 @@ async function queueInternal(
     // submissions in flight would make the loser fail against the contract.
     await db()`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
       SELECT ${randomUUID()},${job.question_id},${job.owner_id},${kind},${JSON.stringify(payload)}::jsonb,${key}
-      WHERE NOT EXISTS(${activePaymentOperation(String(payload.claimant), String(payload.payment_id))})
+      WHERE NOT EXISTS(${activePaymentOperation(String(payload.claimant), String(payload.payment_id), job.vault_address)})
       ON CONFLICT(owner_id,idempotency_key) DO NOTHING`;
     return;
   }

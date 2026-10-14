@@ -277,6 +277,7 @@ export async function queueAction(
       const active = await activePaymentOperation(
         owner.beneficiary,
         String(payment.id),
+        vault,
       );
       if (active[0]) return active[0];
       await rateLimit(owner.id);

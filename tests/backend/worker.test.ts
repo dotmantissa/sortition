@@ -212,6 +212,8 @@ function harness(
   const fakeChain = {
     ...helpers,
     networkClock: async () => ({ unix: 1000 }),
+    availableJuryPanel: async (required: number) =>
+      helpers.jurySubmissionPanel(required, 20),
     withdrawalTransaction: async () =>
       options.proofFound ? "0xpaymentParent" : null,
     chain: () => fakeClient,
@@ -839,6 +841,7 @@ test("a native rollback cannot hide a finalized vault refund or fail its operati
     c.query.startsWith("UPDATE questions SET criteria_hash"),
   );
   assert.equal(JSON.parse(indexed!.values[2]).unavailable, true);
+  assert.deepEqual(JSON.parse(indexed!.values[2]).rounds, []);
   assert.ok(
     h.calls.some((c) => c.query.startsWith("INSERT INTO deliveries")),
     "the final non-adjudication refund still publishes",

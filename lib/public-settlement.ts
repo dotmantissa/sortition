@@ -46,7 +46,12 @@ export function settlementView(
   panel_verified: boolean | null;
   panel_checks: PanelCheck[];
 } {
-  const rounds = question.docket?.rounds.length || 0;
+  const rounds =
+    question.escrow?.settled === true
+      ? Number(
+          question.escrow.final_round ?? question.docket?.rounds?.length ?? 0,
+        )
+      : question.docket?.rounds?.length || 0;
   const vaultSettled = question.escrow?.settled === true;
   const panel = panelVerified(question.panel_checks, rounds);
   const settled =
