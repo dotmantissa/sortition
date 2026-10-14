@@ -19,7 +19,9 @@
     "test:venue": "tsx scripts/verify-venue.mjs",
     "test:exit": "tsx scripts/verify-exit.ts",
     "test:escalation": "tsx scripts/verify-escalation.ts",
-    "test:rendered": "tsx scripts/verify-rendered.ts"
+    "test:rendered": "tsx scripts/verify-rendered.ts",
+    "test:review": "tsx scripts/verify-review.ts",
+    "test:review-consumers": "tsx scripts/verify-review-consumers.ts"
   },
   "dependencies": {
     "@farcaster/frame-sdk": "^0.0.64",

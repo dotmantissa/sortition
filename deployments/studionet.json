@@ -9,17 +9,17 @@
   "max_bonded_rounds": 3,
   "contracts": {
     "vault": {
-      "tx_hash": "0x16e1d93e4a55f9f986133eb8c5be01083812d0108da3bc4c51918c2ef71406b1",
-      "source_hash": "d0bfd40ca636ee6d92817653927491eb3b75f3d71f984b255d21e4020fc93bb5",
-      "address": "0xAcA1E7ed1A68B35fe4D4E98b0d45fC02A2651729"
+      "tx_hash": "0x6da6a294b9f7e54e1c614cf300e06db7db5d0fca21d277ed6a1852c6a51bb847",
+      "source_hash": "4bf79f0edf03a6775d0040dcc5a00506ffcfc18837b64233e8553f1e894f26e1",
+      "address": "0x9043e16A71465C131d801Eb798A8f88F2707297c"
     },
     "registry": {
-      "tx_hash": "0x94306d18f60e9b84e081c2eab72d1cdd5f9f945f3619b787839936f0d9a4c576",
-      "source_hash": "d6d1e8763704d038b01dd47524b5474cd6830692e9f3ab7c65fbfe990fcbd121",
-      "docket_source_hash": "b8d5a361e697d17d7e00b48419beb700201f032a41fd0509a00145993b1b6af6",
-      "address": "0xAb8b07F9F0917FD71686C258b15BB8c8072DD671"
+      "tx_hash": "0xd3672cbef4a6b6788e3cdddd2c7cf0c4e653ddba9e8d1dc19e443d5d72c7d751",
+      "source_hash": "c74aa5860088230710d3d7ec6fbb051c45dca192ca87f5f13ef7137fc6759481",
+      "docket_source_hash": "5a0ef50e888328c057f52fc06eeb3bd372d7c15180cc3adcfe8fc0b53e973d6a",
+      "address": "0x1920466338556B39A95835eC889b5EC77056F0Ef"
     }
   },
-  "configure_tx": "0xf6c854c8d0b4b1a407d0bd349bed5a01fbf4b99f3d374bd52fc1e4084f228dc6",
+  "configure_tx": "0x1cb1f46244857892d5ad10f71e1413774c2690d1f71f91a1c2e1f3015a2b871e",
   "configured": true
 }

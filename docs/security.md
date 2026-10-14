@@ -38,3 +38,11 @@ Webhook signatures bind the raw body and the event ID with a shared secret, and
 the reference consumer additionally reads finalized vault state and refuses a
 settlement whose hearings did not seat their committed panel. That is still a
 single publisher's word about another chain's state.
+
+## Finalized receipt boundary in version 5
+
+Hearing candidates cannot authorize escrow until `verify_hearing` checks their finalized receipt, exact operation marker and completed unique jury. Native delivery confirmation checks the withdrawal marker and its actual finalized ledger transfer. The oracle endpoint is immutable `https://studio.genlayer.com/api`, rather than a caller/relay-supplied URL. Consensus participants independently repeat the read and require exact normalized conclusions. RPC outage, missing proof and unfinalized execution preserve pending state and bounded recovery. This is a Studio receipt oracle, not a cryptographic proof of inclusion; production needs an authenticated adapter for its consensus/transfer state.
+
+Historical hashes commit bytes but do not authenticate an earlier publication date. Historical mode also requires explicit dated support in complete authoritative source documents. Live mutable pages and first-hearing timestamps alone cannot establish historical authority. Partial documents never settle YES/NO.
+
+Official runtime boundaries: [transaction context](https://docs.genlayer.com/developers/intelligent-contracts/features/transaction-context) exposes no current panel or transaction hash; [messages](https://docs.genlayer.com/developers/intelligent-contracts/features/messages) explains finalized external transfers and Studio simulation. Version 5 audits an earlier finalized transaction rather than pretending its current committee is visible in GenVM.

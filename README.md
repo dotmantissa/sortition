@@ -12,9 +12,11 @@ There is no exchange here. No positions, no liquidity pool, and no house view. A
 
 Register a question through the email console or API. Lock two to five named sources, choose how disagreements are handled, name a tie source, and write down when the honest answer is unresolvable. Each question gets its own contract address and public docket.
 
-Request a resolution after the question closes. The registered relay gets a head start so its panel policy applies first; once that grace period expires, any account can ask for the jury, so a lost key or an unwilling operator cannot strand a funded docket. Each completed validator reading fetches every registered source and independently extracts the facts, as of the locked closing time. The model must quote the passage carrying the fact; the contract locates that passage in the document it fetched and keeps the window around it. A second audit stage reads those real document windows and decides both whether each quotation supports its value and whether the uncertainty rule applies. A temporary outage fails the hearing instead of becoming a verdict.
+Request resolution after the locked resolution time. Trading close, event observation and resolution readiness are separate timestamps, so a post-close final score can establish the outcome. Every participant retrieves the sources independently. Extraction quotes are located in the source; a second audit inspects complete documents, temporal provenance, corrections and uncertainty. Oversized partial documents cannot produce conclusive verdicts. Historical mode locks source snapshot hashes and still requires dated historical support.
 
-Challenge a reading with a bond. Bonds double each round, up to three bonded rounds, and the panel each round is funded for is committed on chain: 5, then 7, 9 and 11. GenLayer chooses the participants. Every hearing receipt is checked against that commitment and published, because GenLayer does not expose the seated panel to contract code. Native protocol appeals are paused on this Studio deployment after a rollback failed live verification; the contracts are written to tolerate one anyway. A fresh application challenge window starts after the ruling is final.
+Every hearing first becomes a candidate. `verify_hearing` independently checks its finalized Studio receipt inside contract consensus before the docket can publish a ruling to escrow. Undersized direct juries are rejected, remain publicly visible and leave the funded round retryable with its original timeout. Required completed panels grow 5, 7, 9 and 11; the relay requests extra seats within the live validator pool to accommodate quorum completion. Native protocol appeals remain distinct from bonded application challenges and paused in the service after the documented Studio rollback failure.
+
+Native payment confirmation likewise requires independent proof of the finalized parent and its actual transfer child. A relay assertion cannot mark a failed payment delivered. Recovery requires a proven failed transfer and exact native backing, and successful transfers cannot be restored or replayed.
 
 Get your money back if the jury never answers. Every funded hearing carries a deadline. Once it passes with no ruling, anyone can release the docket and every fee and bond returns to the account that paid it, as the final outcome `REFUNDED`. No relay, no operator and no further consensus is required.
 
@@ -63,12 +65,13 @@ npm run test:escalation
 npm run test:rendered
 npm run test:remediation
 npm run test:venue
+npm run test:review
 npx tsx scripts/verify-payout.ts
 npx tsx scripts/verify-service.ts
 npx tsx scripts/verify-deployment.ts
 ```
 
-Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, absent versus temporarily unavailable sources, quotation binding and support, malformed model replies, validator comparison, escalating bonds, bounded rounds, committed panels, relay rotation, settlement boundaries, refunds and payouts. Test fixtures are confined to the test suite.
+The reviewer suite adds direct undersized juries, receipt binding/finality/rotation/replay attacks, false payment confirmation, failed transfer recovery, post-close outcomes, historical corrections, incomplete documents and escrow recovery with a missing docket. Direct tests cover all three contracts, including permission checks, locked hashes, every disagreement rule, absent versus temporarily unavailable sources, quotation binding and support, malformed model replies, validator comparison, escalating bonds, bounded rounds, committed panels, relay rotation, settlement boundaries, refunds and payouts. Test fixtures are confined to the test suite.
 
 The live test registers a real IANA and MDN question on Studio, verifies the factory docket and criteria hash, funds the fee, resolves independently fetched evidence, challenges the result, checks each hearing against the panel its round was funded for, finalizes settlement and confirms the losing bond left the relay for the burn treasury. The exit test proves the other ending: it funds a hearing, never asks for it, waits out the deadline, releases it permissionlessly, and verifies the exact refund arrives as native value and that the beneficiary can confirm delivery without the relay. Both keep resumable public progress in `deployments/live-test.json` and `deployments/live-exit.json`. The escalation test walks one docket through every bonded round this deployment allows, checking that each round commits the escalating panel on chain, recording what each panel actually seated, and confirming the round limit is refused on chain rather than by the service. `verify-deployment.ts` re-reads the deployed contract code and compares it with this working tree. `verify-rendered.ts` asserts the served markup of the public pages, which is what runs where Chromium's system libraries are unavailable; `npm run test:browser` is the fuller Playwright suite. The remediation verifier also proves distinct sponsor accounting, signed consumer delivery, duplicate handling and rejection of altered event IDs. Its test API keys are confined to a private local file and revoked after verification. These server integration checks do not claim to verify an email inbox.
 
@@ -103,7 +106,7 @@ reader has to infer them.
   position, and it does not replace Polymarket's resolver.
 - **Production consensus is unproven.** Studio uses test GEN and supports
   leader only execution. Panel requirements are committed on chain and every
-  receipt is checked against them, but a jury security claim needs validation on
+  finalized receipt is independently checked on contract before ruling publication. This fixed Studio RPC oracle is not a cryptographic inclusion proof; a jury security claim needs validation on
   the intended production network.
 - **Sponsored bonds are not economic deterrence.** A challenger using the
   hosted console risks none of their own money. The contract supports genuinely
@@ -118,3 +121,5 @@ Studio uses test GEN and is intended for development.
 For dependency maintenance and secret handling, read [security notes](docs/security.md).
 
 For the consensus boundary and settlement policy, read [the architecture notes](docs/architecture.md).
+
+The current reviewer remediation and reproducible finalized scenarios are documented in [review evidence](docs/review-evidence.md). Older live scripts and records are retained as historical evidence; `npm run test:review` is the current acceptance suite.

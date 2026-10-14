@@ -74,3 +74,9 @@ served markup. It is a narrower check than the Playwright suite — it does not
 exercise theme switching, the registration form or mobile layout — so run the
 browser suite on a host that can launch Chromium before a release you intend to
 call fully verified.
+
+## Version 5 proof operations
+
+A successful resolve remains submitted while its durable `verify_hearing` job audits the finalized candidate receipt. An insufficient completed jury fails that resolve without another fee; retry the funded hearing, or take the original vault timeout. The worker requests extra seats to meet the committed completed-member count despite Studio quorum early completion. The challenge window begins only after the verified finalized callback reaches the vault.
+
+Payments require the exact finalized withdrawal hash and a bound finalized child. Failed proof never confirms delivery. Restore only a proven uncredited transfer, with exact replacement value. A successful or unresolved transfer must never be restored. Direct beneficiaries may provide the same proof without waiting for the service. `npm run test:review` records submission intent before broadcast and every transaction hash immediately; resume its saved manifest rather than resending operations.

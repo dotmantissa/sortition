@@ -24,6 +24,9 @@ Send `POST /api/questions` with `Authorization: Bearer YOUR_API_KEY`, `Content-T
     "tie_break_url": "https://your-authority.example/result",
     "disagreement_rule": "unanimous",
     "close_timestamp": 2000000000,
+    "observation_timestamp": 2000007200,
+    "resolution_timestamp": 2000007500,
+    "evidence_mode": "event_outcome",
     "unresolvable_definition": "No final result, conflicting evidence, or an unavailable source"
   },
   "fee": "0",
@@ -80,3 +83,11 @@ Use the question ID, criteria hash, docket address and network that you register
 Copy the widget together with `lib/settlement.ts`, or import both from a checked out integration package. Pass `criteriaHash`, `docketAddress` and `network` with `questionId`. The callback is a display notification, not durable financial processing. Store the settlement identity in your venue and apply it once.
 
 The reference receiver at `/api/reference/settlement` verifies a configured signing secret, pinned criteria and finalized chain state. Its public GET record shows the action recorded for a question. It is an integration example, not a replacement for Polymarket's resolver or a bridge to another chain.
+
+## Reviewer-safe settlement and recovery
+
+The three timestamps separate trading cutoff, observation and earliest resolution. Omitted observation/resolution times explicitly inherit close and become part of the locked hash. Historical mode requires `content_sha256` on each authoritative versioned source and explicit dated evidence; a digest does not prove publication time.
+
+A direct `resolve()` writes a candidate only. Submit `verify_hearing(candidate_id, tx_hash)` on the docket with the finalized hearing hash. Rejected candidates do not consume funding or open settlement. Public `docket.candidates` exposes pending/rejected attempts and their proof result; only verified hearings appear in `docket.rounds`. Until verification and the vault's final window complete, consumers receive PENDING. All final adjudications require `panel_verified === true`; absent verification must be rejected. REFUNDED is a non-adjudication exit.
+
+For a direct withdrawal, `confirm_payment` optionally accepts `withdrawal_tx` in its action body. Contract calls are `confirm_withdrawal(beneficiary, payment_id, withdrawal_tx)` and payable `restore_withdrawal(beneficiary, payment_id, withdrawal_tx)` with exact replacement backing. Both independently check execution proof; supplying a hash does not assert success. The service can discover direct withdrawal receipts, but the beneficiary can always submit proof directly. Never retry an unresolved native transfer.
