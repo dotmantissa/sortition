@@ -32,6 +32,7 @@ const finalRecord = {
   question_id: "first",
   outcome: "YES",
   final: true,
+  panel_verified: true,
   criteria_hash: "a".repeat(64),
   docket_address: "0x" + "b".repeat(40),
   network: "studionet",

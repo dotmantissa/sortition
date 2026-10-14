@@ -38,6 +38,9 @@ export async function POST(req: Request) {
         final: true,
         rounds: event.round,
         refunded: event.refunded === true,
+        panel_verified:
+          event.refunded === true ||
+          panelVerified(receiver.panel_checks, event.round) === true,
       },
       {
         questionId: receiver.question_id,
@@ -54,7 +57,10 @@ export async function POST(req: Request) {
     if (
       escrow.settled !== true ||
       escrow.outcome !== settlement.outcome ||
-      Number(escrow.final_round) !== settlement.rounds
+      Number(escrow.final_round) !== settlement.rounds ||
+      (Number(escrow.version) >= 5 &&
+        settlement.outcome !== "REFUNDED" &&
+        escrow.panel_verified !== true)
     )
       return Response.json(
         { error: "Final chain state does not match" },

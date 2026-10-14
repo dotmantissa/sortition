@@ -14,6 +14,7 @@ const final = {
   network: pin.network,
   outcome: "YES",
   final: true,
+  panel_verified: true,
   rounds: 2,
 };
 test("pinned settlement rejects wrong question, criteria, contract, chain and inconsistent finality", () => {
@@ -58,5 +59,27 @@ test("a settlement identity binds the exact consumer decision and lock", () => {
     settlementIdentity({ ...final, outcome: "NO" } as Parameters<
       typeof settlementIdentity
     >[0]),
+  );
+});
+
+test("every external consumer rejects absent, false or stale jury verification", () => {
+  for (const panel_verified of [undefined, false, null, "true"])
+    assert.throws(
+      () => parseSettlement({ ...final, panel_verified }, pin),
+      /jury/,
+    );
+  assert.throws(() => parseSettlement({ ...final, stale: true }, pin), /stale/);
+  assert.equal(
+    parseSettlement(
+      {
+        ...final,
+        outcome: "REFUNDED",
+        refunded: true,
+        rounds: 0,
+        panel_verified: false,
+      },
+      pin,
+    ).outcome,
+    "REFUNDED",
   );
 });

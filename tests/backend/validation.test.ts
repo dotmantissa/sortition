@@ -55,3 +55,55 @@ test("closing timestamp gives enough time for registration", () => {
   assert.equal(closingIsFuture(131, 100000), false);
   assert.equal(closingIsFuture(160, 100000), true);
 });
+
+test("temporal clocks lock post-close observation and reject unsupported historical snapshots", () => {
+  const baseline = {
+    question: "Will the home team win this match?",
+    criteria: "YES for a final home win after kickoff, NO otherwise.",
+    unresolvable_definition: "No final score or abandoned match.",
+    sources: [
+      { name: "A", url: "https://a.example/score" },
+      { name: "B", url: "https://b.example/score" },
+    ],
+    tie_break_url: "https://a.example/score",
+    disagreement_rule: "unanimous",
+    close_timestamp: 100,
+  };
+  const parsed = specificationSchema.parse({
+    ...baseline,
+    observation_timestamp: 200,
+    resolution_timestamp: 300,
+  });
+  assert.equal(parsed.resolution_timestamp, 300);
+  assert.equal(
+    specificationSchema.safeParse({ ...baseline, observation_timestamp: 99 })
+      .success,
+    false,
+  );
+  assert.equal(
+    specificationSchema.safeParse({
+      ...baseline,
+      observation_timestamp: 200,
+      resolution_timestamp: 199,
+    }).success,
+    false,
+  );
+  assert.equal(
+    specificationSchema.safeParse({
+      ...baseline,
+      evidence_mode: "historical_state",
+    }).success,
+    false,
+  );
+  assert.equal(
+    specificationSchema.safeParse({
+      ...baseline,
+      evidence_mode: "historical_state",
+      sources: baseline.sources.map((s) => ({
+        ...s,
+        content_sha256: "a".repeat(64),
+      })),
+    }).success,
+    true,
+  );
+});

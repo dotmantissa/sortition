@@ -32,6 +32,8 @@ export function OperatorConsole() {
     criteria: "",
     unresolvable_definition: "",
     close: "",
+    observation: "",
+    resolution: "",
     disagreement_rule: "unanimous",
     tie: 0,
     fee: "0",
@@ -106,6 +108,15 @@ export function OperatorConsole() {
         tie_break_url: sources[draft.tie]?.url,
         disagreement_rule: draft.disagreement_rule,
         close_timestamp: Math.floor(new Date(draft.close).getTime() / 1000),
+        observation_timestamp: Math.floor(
+          new Date(draft.observation || draft.close).getTime() / 1000,
+        ),
+        resolution_timestamp: Math.floor(
+          new Date(
+            draft.resolution || draft.observation || draft.close,
+          ).getTime() / 1000,
+        ),
+        evidence_mode: "event_outcome",
         ...(venue ? { venue } : {}),
       },
       fee: draft.fee,
@@ -287,8 +298,20 @@ export function OperatorConsole() {
                 </dd>
                 <dt>Unresolvable when</dt>
                 <dd>{draft.unresolvable_definition}</dd>
-                <dt>Question closes</dt>
+                <dt>Trading closes</dt>
                 <dd>{new Date(draft.close).toLocaleString()} local time</dd>
+                <dt>Event observed</dt>
+                <dd>
+                  {new Date(draft.observation || draft.close).toLocaleString()}{" "}
+                  local time
+                </dd>
+                <dt>Resolution may begin</dt>
+                <dd>
+                  {new Date(
+                    draft.resolution || draft.observation || draft.close,
+                  ).toLocaleString()}{" "}
+                  local time
+                </dd>
                 <dt>Resolution fee</dt>
                 <dd>{draft.fee} GEN wei, sponsored by the operator relay</dd>
                 <dt>First appeal bond</dt>
@@ -401,7 +424,7 @@ export function OperatorConsole() {
                   </span>
                 </label>
                 <label>
-                  When does the question close?
+                  When does trading close?
                   <input
                     type="datetime-local"
                     required
@@ -409,10 +432,36 @@ export function OperatorConsole() {
                     onChange={(e) => update("close", e.target.value)}
                   />
                   <span className="field-help">
-                    Your local time. Resolution starts after this moment.
+                    Your local time. Positions stop here; final outcome evidence
+                    may arrive later.
                     {clock
                       ? ` Network time is ${new Date(clock.unix * 1000).toLocaleString()}.`
                       : " Checking the network clock…"}
+                  </span>
+                </label>
+                <label>
+                  When is the event outcome observed?
+                  <input
+                    type="datetime-local"
+                    value={draft.observation}
+                    onChange={(e) => update("observation", e.target.value)}
+                  />
+                  <span className="field-help">
+                    End of the event or the time whose state is being judged.
+                    Defaults to trading close.
+                  </span>
+                </label>
+                <label>
+                  When may resolution begin?
+                  <input
+                    type="datetime-local"
+                    value={draft.resolution}
+                    onChange={(e) => update("resolution", e.target.value)}
+                  />
+                  <span className="field-help">
+                    Allow time for final reports. Defaults to the observation
+                    time. Historical snapshot markets can be registered through
+                    the API.
                   </span>
                 </label>
                 <fieldset className="sources-fieldset">

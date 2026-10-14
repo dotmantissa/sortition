@@ -48,6 +48,8 @@ export async function registerPolymarketQuestion({
   sources,
   unresolvableDefinition,
   closeTimestamp,
+  observationTimestamp,
+  resolutionTimestamp,
   disagreementRule,
   tieBreakUrl,
   webhook,
@@ -57,6 +59,8 @@ export async function registerPolymarketQuestion({
   sources: Source[];
   unresolvableDefinition: string;
   closeTimestamp: number;
+  observationTimestamp?: number;
+  resolutionTimestamp?: number;
   disagreementRule: Specification["disagreement_rule"];
   tieBreakUrl: string;
   webhook?: { url: string; secret: string };
@@ -69,6 +73,10 @@ export async function registerPolymarketQuestion({
     sources,
     unresolvable_definition: unresolvableDefinition,
     close_timestamp: closeTimestamp,
+    observation_timestamp: observationTimestamp ?? closeTimestamp,
+    resolution_timestamp:
+      resolutionTimestamp ?? observationTimestamp ?? closeTimestamp,
+    evidence_mode: "event_outcome",
     disagreement_rule: disagreementRule,
     tie_break_url: tieBreakUrl,
     venue: {

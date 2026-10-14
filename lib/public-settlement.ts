@@ -47,7 +47,10 @@ export function settlementView(
   panel_checks: PanelCheck[];
 } {
   const rounds = question.docket?.rounds.length || 0;
-  const settled = question.escrow?.settled === true;
+  const vaultSettled = question.escrow?.settled === true;
+  const panel = panelVerified(question.panel_checks, rounds);
+  const settled =
+    vaultSettled && (question.escrow?.refunded === true || panel === true);
   const refunded = question.escrow?.refunded === true;
   const age = indexAge(question, now);
   // A final settlement cannot change, so its indexed view is never out of
@@ -69,7 +72,7 @@ export function settlementView(
     as_of: question.indexed_at ?? null,
     index_age_seconds: age,
     stale,
-    panel_verified: panelVerified(question.panel_checks, rounds),
+    panel_verified: panel,
     panel_checks: question.panel_checks ?? [],
   };
 }

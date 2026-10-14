@@ -211,3 +211,27 @@ def test_historical_hash_alone_does_not_prove_observation_time(docket, direct_vm
     direct_vm.mock_llm('(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'temporal_supported_urls': [], 'unresolvable': False}))
     docket.resolve()
     assert docket.get_settlement()['outcome'] == 'UNRESOLVABLE'
+
+
+def test_vault_rejects_an_authenticated_undersized_callback(vault, direct_vm, direct_bob):
+    c, _ = vault
+    direct_vm.value = 10; c.fund('q1'); direct_vm.value = 0
+    direct_vm.sender = direct_bob
+    before = c.get_account('q1')
+    with direct_vm.expect_revert('verified required jury'):
+        c.record_ruling('q1', 'YES', 1, 'a'*64, HEARING, 4, 3)
+    assert c.get_account('q1') == before
+    assert before['ruling_round'] == 0 and before['hearing_deadline'] > 0
+    with direct_vm.expect_revert('verified required jury'):
+        c.record_ruling('q1', 'YES', 1, 'a'*64, HEARING, 5, 0)
+
+
+def test_full_document_audit_inspects_a_distant_qualification(docket, direct_vm):
+    body = BODY + 'x'*12000 + ' CORRECTION: the apparent final release was provisional and is retracted.'
+    direct_vm.mock_web('.*', {'status': 200, 'body': body})
+    direct_vm.mock_llm('(?s)Extract evidence.*', json.dumps({'position': 'YES', 'value': '6 percent', 'quote': QUOTE}))
+    # The audit only responds if the qualification far outside the quote window
+    # is present. A short-context audit would fail this regression.
+    direct_vm.mock_llm('(?s)auditing a locked prediction hearing.*CORRECTION: the apparent final release was provisional', json.dumps({'unsupported_urls': [], 'unresolvable': True, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}))
+    docket.resolve()
+    assert docket.get_settlement()['outcome'] == 'UNRESOLVABLE'

@@ -1,6 +1,6 @@
 export type Outcome = "YES" | "NO" | "UNRESOLVABLE";
 export type FinalOutcome = Outcome | "REFUNDED";
-export type Source = { name: string; url: string };
+export type Source = { name: string; url: string; content_sha256?: string };
 export type Specification = {
   question: string;
   criteria: string;
@@ -8,6 +8,9 @@ export type Specification = {
   tie_break_url: string;
   disagreement_rule: "unanimous" | "majority" | "tie_break";
   close_timestamp: number;
+  observation_timestamp?: number;
+  resolution_timestamp?: number;
+  evidence_mode?: "event_outcome" | "historical_state";
   unresolvable_definition: string;
   venue?: {
     name: string;
@@ -43,6 +46,13 @@ export type Round = {
   /** The panel this round was funded for, committed by the contract. */
   required_validators?: number;
   closing_timestamp?: number;
+  jury_status?: "pending" | "verified" | "rejected";
+  tx_hash?: string;
+  panel_check?: PanelCheck;
+  candidate_id?: string;
+  observation_timestamp?: number;
+  resolution_timestamp?: number;
+  evidence_mode?: string;
 };
 export type PanelCheck = {
   round: number;
@@ -82,7 +92,14 @@ export type Question = {
     round_deadline: number;
     note: string;
   } | null;
-  docket?: { rounds: Round[]; required_validators?: number; open_to_anyone_after?: number; relay?: string };
+  docket?: {
+    version?: number;
+    candidates?: Round[];
+    rounds: Round[];
+    required_validators?: number;
+    open_to_anyone_after?: number;
+    relay?: string;
+  };
   escrow?: {
     version?: number;
     opened_round?: number;

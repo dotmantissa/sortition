@@ -61,6 +61,9 @@ export function parseSettlement(raw: unknown, pin: SettlementPin): Settlement {
     s.docket_address?.toLowerCase() !== pin.docketAddress.toLowerCase()
   )
     throw Error("Docket address does not match");
+  if (s.final && s.outcome !== "REFUNDED" && s.panel_verified !== true)
+    throw Error("Required jury has not been verified");
+  if (s.final && s.stale === true) throw Error("Settlement view is stale");
   return s;
 }
 export function settlementIdentity(s: Settlement) {

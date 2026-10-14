@@ -66,7 +66,11 @@ test("registration validates and reviews real evidence rules before submitting",
       .toISOString()
       .slice(0, 16);
   }, networkTime.unix);
-  await page.getByLabel("When does the question close?").fill(closingTime);
+  await page.getByLabel("When does trading close?").fill(closingTime);
+  await page
+    .getByLabel("When is the event outcome observed?")
+    .fill(closingTime);
+  await page.getByLabel("When may resolution begin?").fill(closingTime);
   await page.getByLabel("Source 1 name", { exact: true }).fill("IANA registry");
   await page
     .getByLabel("Source 1 URL", { exact: true })

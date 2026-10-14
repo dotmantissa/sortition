@@ -13,7 +13,14 @@ export async function POST(
     if (!key || key.length > 200)
       throw new HttpError(400, "An idempotency key is required.");
     return Response.json(
-      await queueAction(owner, id, body.action, body.expected_outcome, key),
+      await queueAction(
+        owner,
+        id,
+        body.action,
+        body.expected_outcome,
+        key,
+        body.withdrawal_tx,
+      ),
       { status: 202 },
     );
   } catch (e) {

@@ -52,8 +52,9 @@ export default function Integrate() {
             <p>
               A specification contains the question, written criteria, two to
               five named HTTPS sources, a disagreement rule, a named tie source
-              from that set, a closing timestamp, and an explicit definition of
-              unresolvable. The entire specification is hashed and locked.
+              from that set, separate trading, observation and resolution
+              timestamps, and an explicit definition of unresolvable. The entire
+              specification is hashed and locked.
             </p>
             <Code>{register}</Code>
             <p>
@@ -65,9 +66,12 @@ export default function Integrate() {
           <section className="guide-section" id="verdict">
             <h2>Wait for the final word.</h2>
             <p>
-              After the close, request resolution. A consensus verdict opens the
-              bonded challenge window. Finalize once it expires. Your venue
-              should consume only a settlement with <code>final: true</code>.
+              After resolution readiness, request a hearing. Its finalized jury
+              must be verified before the bonded challenge window opens.
+              Finalize once that window expires. Your venue should consume only
+              a settlement with <code>final: true</code> and{" "}
+              <code>panel_verified: true</code>. A timeout refund is a final
+              non-adjudication.
             </p>
             <Code>{`import { parseSettlement, settlementIdentity } from './lib/settlement';
 

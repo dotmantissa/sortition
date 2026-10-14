@@ -1,4 +1,10 @@
-import { networkClock, addresses, readFinal, object, type Address } from "./chain";
+import {
+  networkClock,
+  addresses,
+  readFinal,
+  object,
+  type Address,
+} from "./chain";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
 import { HttpError } from "./auth";
@@ -102,7 +108,11 @@ export function escrowParticipant(
   question: {
     owner_id?: string;
     beneficiary?: string;
-    escrow?: { beneficiary?: string; fee_payer?: string; challenges?: { payer?: string; claimant?: string }[] } | null;
+    escrow?: {
+      beneficiary?: string;
+      fee_payer?: string;
+      challenges?: { payer?: string; claimant?: string }[];
+    } | null;
   },
   owner: { id: string; beneficiary: string },
 ) {
@@ -112,7 +122,10 @@ export function escrowParticipant(
     question.beneficiary,
     question.escrow?.beneficiary,
     question.escrow?.fee_payer,
-    ...(question.escrow?.challenges || []).flatMap((c) => [c.payer, c.claimant]),
+    ...(question.escrow?.challenges || []).flatMap((c) => [
+      c.payer,
+      c.claimant,
+    ]),
   ];
   return named.some(
     (address) => typeof address === "string" && address.toLowerCase() === mine,
@@ -148,6 +161,7 @@ export async function queueAction(
   action: string,
   expected: string | undefined,
   key: string,
+  withdrawalTx?: string,
 ) {
   if (!(actions as readonly string[]).includes(action))
     throw new HttpError(400, "Unknown docket action.");
@@ -157,7 +171,10 @@ export async function queueAction(
   const rows =
     await sql`SELECT owner_id,archive_reason,escrow,docket,beneficiary,vault_address FROM questions WHERE id=${id}`;
   if (!rows[0]) throw new HttpError(404, "This question was not found.");
-  if (rows[0].archive_reason && !["withdraw", "confirm_payment"].includes(action))
+  if (
+    rows[0].archive_reason &&
+    !["withdraw", "confirm_payment"].includes(action)
+  )
     throw new HttpError(
       409,
       "This docket is archived after a network failure. Its public receipts are preserved.",
@@ -239,6 +256,14 @@ export async function queueAction(
         throw new HttpError(409, "This account has no credit to withdraw.");
     }
     if (action === "confirm_payment") {
+      if (
+        withdrawalTx !== undefined &&
+        !/^0x[0-9a-fA-F]{64}$/.test(withdrawalTx)
+      )
+        throw new HttpError(
+          400,
+          "A valid finalized withdrawal transaction hash is required.",
+        );
       const payment = object(
         await readFinal(vault, "get_payment", [owner.beneficiary]),
       );
@@ -256,7 +281,7 @@ export async function queueAction(
       if (active[0]) return active[0];
       await rateLimit(owner.id);
       const op = randomUUID();
-      await sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${op},${id},${owner.id},'confirm_payment',${JSON.stringify({ claimant: owner.beneficiary, payment_id: payment.id })}::jsonb,${key})`;
+      await sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key) VALUES(${op},${id},${owner.id},'confirm_payment',${JSON.stringify({ claimant: owner.beneficiary, payment_id: payment.id, withdrawal_tx: withdrawalTx })}::jsonb,${key})`;
       return { id: op, status: "queued" };
     }
   }

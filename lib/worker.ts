@@ -19,6 +19,7 @@ import {
   statusName,
   executionSucceeded,
   readTransaction,
+  withdrawalTransaction,
   childExecutionState,
   publicReceipt,
   type Address,
@@ -35,7 +36,14 @@ type Job = {
   question_id: string;
   tx_hash: string | null;
   status: string;
-  payload: { expected?: string; claimant?: string; payment_id?: string };
+  payload: {
+    expected?: string;
+    claimant?: string;
+    payment_id?: string;
+    withdrawal_tx?: string;
+    candidate_id?: string;
+    hearing_tx?: string;
+  };
   specification: Specification;
   beneficiary: string;
   fee: string;
@@ -44,6 +52,38 @@ type Job = {
   registry_address: Address;
   vault_address: Address;
 };
+function authoritativeSettlement(
+  escrow: Record<string, unknown>,
+  rounds: unknown[],
+  checks: unknown,
+) {
+  if (escrow.settled !== true) return false;
+  if (escrow.refunded === true) return true;
+  if (Number(escrow.version) >= 5)
+    return (
+      escrow.panel_verified === true &&
+      rounds.length > 0 &&
+      rounds.every((value) => {
+        const r = object(value),
+          check = object(r.panel_check);
+        return (
+          r.jury_status === "verified" &&
+          check.verified === true &&
+          Number(check.observed) >= Number(r.required_validators) &&
+          Number(check.independent_validators) > 0
+        );
+      })
+    );
+  const legacy = Array.isArray(checks) ? checks : [];
+  return (
+    rounds.length > 0 &&
+    rounds.every((_r, i) =>
+      legacy.some(
+        (c) => Number(object(c).round) === i + 1 && object(c).verified === true,
+      ),
+    )
+  );
+}
 /** One durable settlement event per question and final round. */
 function settlementEvent(
   id: string,
@@ -62,13 +102,15 @@ function settlementEvent(
       docket_address: docketAddress,
       round: escrow.final_round,
       network: "studionet",
+      panel_verified:
+        escrow.refunded === true || escrow.panel_verified === true,
     },
   };
 }
 async function updateQuestion(id: string) {
   const sql = db();
   const configured =
-    await sql`SELECT registry_address,vault_address,owner_id FROM questions WHERE id=${id}`;
+    await sql`SELECT registry_address,vault_address,owner_id,panel_checks FROM questions WHERE id=${id}`;
   const a = {
     registry: configured[0].registry_address as Address,
     vault: configured[0].vault_address as Address,
@@ -81,15 +123,38 @@ async function updateQuestion(id: string) {
   const spec = registered.specification as Specification;
   const rounds = Array.isArray(docket.rounds) ? docket.rounds : [];
   const now = (await networkClock()).unix;
-  const state = questionState(escrow, rounds.length, spec.close_timestamp, now);
+  const state = questionState(
+    escrow,
+    rounds.length,
+    spec.resolution_timestamp ?? spec.close_timestamp,
+    now,
+  );
+  const verifiedChecks = rounds.map((r) => {
+    const round = object(r);
+    return {
+      round: round.round,
+      tx_hash: round.tx_hash,
+      ...object(round.panel_check),
+    };
+  });
   const statements = [
+    ...(Number(docket.version) >= 5
+      ? [
+          sql`UPDATE questions SET panel_checks=${JSON.stringify(verifiedChecks)}::jsonb WHERE id=${id}`,
+        ]
+      : []),
     sql`UPDATE questions SET criteria_hash=${registered.criteria_hash as string},docket_address=${docketAddress},docket=${JSON.stringify(docket)}::jsonb,escrow=${JSON.stringify(escrow)}::jsonb,status=${state},updated_at=now(),indexed_at=now(),next_index_at=now()+interval '60 seconds' WHERE id=${id}`,
   ];
-  if (escrow.settled) {
+  if (authoritativeSettlement(escrow, rounds, configured[0].panel_checks)) {
     // The settled status and its outbox event are written together. A crash
     // between them used to lose the event permanently, because later idle
     // scans skip settled questions.
-    const event = settlementEvent(id, escrow, registered.criteria_hash, docketAddress);
+    const event = settlementEvent(
+      id,
+      escrow,
+      registered.criteria_hash,
+      docketAddress,
+    );
     statements.push(
       sql`INSERT INTO deliveries(id,question_id,event_key,payload) SELECT ${randomUUID()},${id},${event.key},${JSON.stringify(event.payload)}::jsonb WHERE EXISTS(SELECT 1 FROM webhooks WHERE question_id=${id}) ON CONFLICT(event_key) DO NOTHING`,
     );
@@ -138,9 +203,19 @@ function participants(
 async function repairDeliveries() {
   const sql = db();
   const rows =
-    await sql`SELECT q.id,q.criteria_hash,q.docket_address,q.escrow FROM questions q JOIN webhooks w ON w.question_id=q.id
+    await sql`SELECT q.id,q.criteria_hash,q.docket_address,q.escrow,q.docket,q.panel_checks FROM questions q JOIN webhooks w ON w.question_id=q.id
       WHERE q.escrow->>'settled'='true' AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.question_id=q.id) LIMIT 1`;
   if (!rows[0]) return false;
+  if (
+    !authoritativeSettlement(
+      object(rows[0].escrow),
+      Array.isArray(object(rows[0].docket).rounds)
+        ? (object(rows[0].docket).rounds as unknown[])
+        : [],
+      rows[0].panel_checks,
+    )
+  )
+    return false;
   const event = settlementEvent(
     rows[0].id,
     object(rows[0].escrow),
@@ -174,14 +249,43 @@ async function scanPayments() {
   }
   const status = typeof payment.status === "string" ? payment.status : "";
   const id = typeof payment.id === "string" ? payment.id : null;
+  let proofTx: string | null = null;
+  let reconciliation = "confirm_payment";
+  let needsProof = false;
+  if (status === "pending" && id) {
+    const configuration = object(
+      await readFinal(watch.vault_address as Address, "get_configuration"),
+    );
+    if (Number(configuration.version) >= 5) {
+      needsProof = true;
+      proofTx = await withdrawalTransaction(
+        watch.vault_address as Address,
+        watch.beneficiary,
+        id,
+      );
+      if (proofTx) {
+        const parent = object(await readTransaction(proofTx as Address));
+        const children = Array.isArray(parent.triggered_transactions)
+          ? parent.triggered_transactions
+          : [];
+        const receipts = [];
+        for (const hash of children)
+          receipts.push(await readTransaction(hash as Address));
+        if (!receipts.length || childExecutionState(receipts) === "pending")
+          proofTx = null;
+        else if (childExecutionState(receipts) === "failed")
+          reconciliation = "restore_payment";
+      }
+    }
+  }
   const retry = status === "pending" ? 120 : 21600;
   const statements = [
     sql`UPDATE payment_watch SET payment_id=${id},status=${status},updated_at=now(),next_scan_at=now()+(${retry}*interval '1 second') WHERE vault_address=${watch.vault_address} AND beneficiary=${watch.beneficiary}`,
   ];
-  if (status === "pending" && id)
+  if (status === "pending" && id && (!needsProof || proofTx))
     statements.push(
       sql`INSERT INTO operations(id,question_id,owner_id,kind,payload,idempotency_key)
-        SELECT ${randomUUID()},${watch.question_id},${watch.owner_id},'confirm_payment',${JSON.stringify({ claimant: watch.beneficiary, payment_id: id })}::jsonb,${"scanned-payment:" + watch.beneficiary + ":" + id}
+        SELECT ${randomUUID()},${watch.question_id},${watch.owner_id},${reconciliation},${JSON.stringify({ claimant: watch.beneficiary, payment_id: id, withdrawal_tx: proofTx || undefined })}::jsonb,${"scanned-payment:" + watch.beneficiary + ":" + id}
         WHERE NOT EXISTS(${activePaymentOperation(watch.beneficiary as string, id)})
         ON CONFLICT(owner_id,idempotency_key) DO NOTHING`,
     );
@@ -264,6 +368,11 @@ async function submit(job: Job, token: string) {
       fn = "publish_ruling";
       args = [];
     }
+    if (job.kind === "verify_hearing") {
+      address = job.docket_address as Address;
+      fn = "verify_hearing";
+      args = [job.payload.candidate_id!, job.payload.hearing_tx!];
+    }
     if (job.kind === "prepare_hearing") fn = "prepare_hearing";
     if (job.kind === "claim_timeout") {
       if (!timeoutClaimable(escrow, (await networkClock()).unix))
@@ -289,11 +398,12 @@ async function submit(job: Job, token: string) {
         await db()`UPDATE operations SET status='queued',next_attempt_at=now()+interval '30 seconds',updated_at=now() WHERE id=${job.id}`;
         return;
       }
-      // Request exactly the panel the contract committed to for this round.
+      // Studio stops at quorum. Request enough seats that quorum can supply
+      // the committed number of completed unique readings, including leader.
       const committed = Number(docket.required_validators || 0);
       client.chain.defaultNumberOfInitialValidators =
         committed > 0
-          ? Math.min(committed, 101)
+          ? Math.min(2 * committed - 1, 101)
           : panelSize(
               Math.min(Number(escrow.challenge_count), maxBondedRounds),
             );
@@ -341,6 +451,27 @@ async function submit(job: Job, token: string) {
           ? "confirm_withdrawal"
           : "restore_withdrawal";
       args = [job.payload.claimant!, job.payload.payment_id!];
+      if (Number(escrow.version) >= 5) {
+        // Proof cannot be replaced by a relay assertion. Discover direct
+        // withdrawals through their bound receipt, not an amount-only match.
+        let withdrawalTx = job.payload.withdrawal_tx;
+        if (!withdrawalTx) {
+          const prior =
+            await db()`SELECT tx_hash FROM operations WHERE kind='withdraw' AND payload->>'claimant'=${job.payload.claimant!} AND tx_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1`;
+          withdrawalTx = prior[0]?.tx_hash;
+        }
+        withdrawalTx ??=
+          (await withdrawalTransaction(
+            a.vault,
+            job.payload.claimant!,
+            job.payload.payment_id!,
+          )) ?? undefined;
+        if (!withdrawalTx)
+          throw Error(
+            "Preparation failed: supply the finalized withdrawal transaction hash for this payment.",
+          );
+        args.push(withdrawalTx);
+      }
       if (job.kind === "restore_payment")
         value = BigInt(payment.amount as string);
     }
@@ -399,7 +530,11 @@ async function reconcilePayment(job: Job, failed: boolean) {
   await queueInternal(
     job,
     kind,
-    { claimant: job.payload.claimant, payment_id: payment.id },
+    {
+      claimant: job.payload.claimant,
+      payment_id: payment.id,
+      withdrawal_tx: job.tx_hash,
+    },
     kind + ":" + job.id,
   );
 }
@@ -408,7 +543,10 @@ async function reconcilePayment(job: Job, failed: boolean) {
  * round was funded for. The contract cannot seat validators, so this public
  * check is what makes the committed requirement meaningful.
  */
-async function recordPanelCheck(job: Job, receipt: ReturnType<typeof publicReceipt>) {
+async function recordPanelCheck(
+  job: Job,
+  receipt: ReturnType<typeof publicReceipt>,
+) {
   const sql = db();
   const docket = object(
     await readFinal(job.docket_address as Address, "get_docket"),
@@ -487,6 +625,45 @@ async function poll(job: Job) {
         await updateQuestion(job.question_id);
       } catch {
         return; /* Factory children may still be pending. Retry the same transaction next tick. */
+      }
+      if (job.kind === "resolve" && job.docket_address) {
+        const current = object(
+          await readFinal(job.docket_address as Address, "get_docket"),
+        );
+        if (Number(current.version) >= 5) {
+          const marker = publicData.leaders.flatMap((l) =>
+            String(l.stdout || "")
+              .split("\n")
+              .flatMap((line) => {
+                try {
+                  const m = object(JSON.parse(line));
+                  return m.sortition_candidate
+                    ? [object(m.sortition_candidate)]
+                    : [];
+                } catch {
+                  return [];
+                }
+              }),
+          )[0];
+          if (!marker?.candidate_id)
+            throw Error("Candidate receipt is missing its operation binding");
+          await queueInternal(
+            job,
+            "verify_hearing",
+            { candidate_id: marker.candidate_id, hearing_tx: job.tx_hash },
+            "verify-hearing:" + job.tx_hash,
+          );
+          const candidate = (
+            Array.isArray(current.candidates) ? current.candidates : []
+          )
+            .map(object)
+            .find((c) => c.candidate_id === marker.candidate_id);
+          if (candidate?.jury_status === "rejected") {
+            await db()`UPDATE operations SET status='failed',error='The completed jury did not meet the funded requirement. Retry this funded hearing or claim its timeout refund.',updated_at=now() WHERE id=${job.id}`;
+            return;
+          }
+          if (candidate?.jury_status !== "verified") return;
+        }
       }
       if (job.kind === "resolve" && job.docket_address) {
         try {

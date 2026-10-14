@@ -27,6 +27,8 @@ function harness(
   options: {
     status?: string;
     badIndex?: boolean;
+    proofGate?: boolean;
+    proofFound?: boolean;
     childFailed?: boolean;
     unopened?: boolean;
     expiredLease?: boolean;
@@ -91,6 +93,10 @@ function harness(
           registry_address: "0xregistry",
           vault_address: "0xvault",
           owner_id: "operator",
+          panel_checks: [
+            { round: 1, verified: true },
+            { round: 2, verified: true },
+          ],
         },
       ];
     if (query.startsWith("SELECT id FROM questions"))
@@ -103,6 +109,11 @@ function harness(
               criteria_hash: "hash",
               docket_address: "0xdocket",
               escrow: { settled: true, outcome: "YES", final_round: 2 },
+              docket: { rounds: [{ round: 1 }, { round: 2 }] },
+              panel_checks: [
+                { round: 1, verified: true },
+                { round: 2, verified: true },
+              ],
             },
           ]
         : [];
@@ -114,6 +125,10 @@ function harness(
               beneficiary: "0xbeneficiary",
               question_id: "first",
               owner_id: "operator",
+              panel_checks: [
+                { round: 1, verified: true },
+                { round: 2, verified: true },
+              ],
             },
           ]
         : [];
@@ -182,24 +197,42 @@ function harness(
     },
     writeContract: async (args: any) => {
       chainCalls.push("write:" + args.functionName);
+      chainCalls.push(
+        "write-args:" +
+          JSON.stringify(args.args, (_key, value) =>
+            typeof value === "bigint" ? String(value) : value,
+          ),
+      );
+      chainCalls.push("write-value:" + String(args.value));
       return "0xnew";
     },
   };
   const fakeChain = {
     ...helpers,
     networkClock: async () => ({ unix: 1000 }),
+    withdrawalTransaction: async () =>
+      options.proofFound ? "0xpaymentParent" : null,
     chain: () => fakeClient,
     readTransaction: async (hash: string) => {
       chainCalls.push(hash);
       return {
+        triggered_transactions: hash === "0xpaymentParent" ? ["0xchild"] : [],
         statusName:
           hash === "0xchild" ? "FINALIZED" : options.status || "FINALIZED",
         consensus_data: {
           leader_receipt: [
             {
               mode: "leader",
+              genvm_result: {
+                stdout: options.proofGate
+                  ? JSON.stringify({
+                      sortition_candidate: { candidate_id: "candidate" },
+                    })
+                  : "",
+              },
               execution_result: hash === "0xchild" ? "ERROR" : "SUCCESS",
-              node_config: { address: "0xleader" },
+              vote: "agree",
+              node_config: { address: "0x" + "1".repeat(40) },
             },
           ],
           validators: Array.from(
@@ -207,7 +240,8 @@ function harness(
             (_v, i) => ({
               mode: "validator",
               vote: "agree",
-              node_config: { address: "0xvalidator" + i },
+              execution_result: "SUCCESS",
+              node_config: { address: "0x" + String(i + 2).padStart(40, "0") },
             }),
           ),
         },
@@ -228,6 +262,7 @@ function harness(
         };
       if (method === "get_docket")
         return {
+          version: options.proofGate ? 5 : 3,
           funded: !options.unprepared,
           expected_challenge_count: options.unprepared ? 0 : 1,
           required_validators: 7,
@@ -241,7 +276,13 @@ function harness(
         return { id: "payment", amount: "2", status: "pending" };
       return {
         // The bounded exit only exists from the version 4 escrow onwards.
-        version: options.overdue ? 4 : options.messageHandoff ? 3 : 2,
+        version: options.proofGate
+          ? 5
+          : options.overdue
+            ? 4
+            : options.messageHandoff
+              ? 3
+              : 2,
         funded: true,
         settled: options.settled === true,
         refunded: false,
@@ -578,7 +619,7 @@ test("a pending payment found in contract state queues its reconciliation", asyn
   const queued = h.calls.find(
     (c) =>
       c.query.startsWith("INSERT INTO operations") &&
-      c.query.includes("'confirm_payment'"),
+      c.values.includes("confirm_payment"),
   );
   assert.ok(queued, "the scanner queues confirmation of a pending payment");
   assert.ok(
@@ -680,7 +721,7 @@ test("one payment is reconciled once, however it was discovered", async () => {
   const scanned = h.calls.find(
     (c) =>
       c.query.startsWith("INSERT INTO operations") &&
-      c.query.includes("'confirm_payment'"),
+      c.values.includes("confirm_payment"),
   );
   assert.ok(scanned);
   assert.ok(
@@ -705,4 +746,76 @@ test("one payment is reconciled once, however it was discovered", async () => {
     queued!.query.includes("WHERE NOT EXISTS"),
     "and it also yields to one already in flight",
   );
+});
+
+test("a v5 hearing queues independent on-contract proof before any settlement window", async () => {
+  const h = harness({ proofGate: true });
+  const job = h.job("resolve");
+  h.jobs.push(job);
+  await h.exports.workerUnderTest.poll(job);
+  const queued = h.calls.find(
+    (c) =>
+      c.query.startsWith("INSERT INTO operations") &&
+      c.values.includes("verify_hearing"),
+  );
+  assert.ok(queued);
+  assert.equal(payload(queued!.values).hearing_tx, job.tx_hash);
+  assert.equal(payload(queued!.values).candidate_id, "candidate");
+});
+test("v5 payment confirmation submits the withdrawal proof, and restoration keeps its exact backing", async () => {
+  for (const kind of ["confirm_payment", "restore_payment"]) {
+    const h = harness({ proofGate: true });
+    const job = {
+      ...h.job(kind),
+      payload: {
+        claimant: "0xbeneficiary",
+        payment_id: "payment",
+        withdrawal_tx: "0xwithdrawal",
+      },
+    };
+    await h.exports.workerUnderTest.submit(job, "lease");
+    assert.ok(
+      h.chainCalls.includes(
+        'write-args:["0xbeneficiary","payment","0xwithdrawal"]',
+      ),
+    );
+    assert.ok(
+      h.chainCalls.includes(
+        "write-value:" + (kind === "restore_payment" ? "2" : "0"),
+      ),
+    );
+    assert.ok(
+      h.chainCalls.includes(
+        "write:" +
+          (kind === "confirm_payment"
+            ? "confirm_withdrawal"
+            : "restore_withdrawal"),
+      ),
+    );
+  }
+});
+
+test("a v5 direct payment waits for its bound receipt and never asserts delivery without proof", async () => {
+  const missing = harness({ watch: true, proofGate: true });
+  await missing.exports.workerUnderTest.scanPayments();
+  assert.ok(
+    !missing.calls.some((c) => c.query.startsWith("INSERT INTO operations")),
+  );
+  const failed = harness({
+    watch: true,
+    proofGate: true,
+    proofFound: true,
+    childFailed: true,
+  });
+  await failed.exports.workerUnderTest.scanPayments();
+  const recovery = failed.calls.find((c) =>
+    c.query.startsWith("INSERT INTO operations"),
+  );
+  assert.ok(recovery?.values.includes("restore_payment"));
+  assert.equal(payload(recovery!.values).withdrawal_tx, "0xpaymentParent");
+});
+test("an unverified settled index cannot emit an authoritative webhook", async () => {
+  const h = harness({ proofGate: true, settled: true });
+  await h.exports.workerUnderTest.updateQuestion("first");
+  assert.ok(!h.calls.some((c) => c.query.startsWith("INSERT INTO deliveries")));
 });

@@ -149,8 +149,12 @@ export function Docket({ initial }: { initial: Question }) {
           </div>
           <h1>{q.specification.question}</h1>
           <p>
-            Closes {date(q.specification.close_timestamp)}.{" "}
-            {q.specification.sources.length} sources, locked at registration.
+            Resolution eligible{" "}
+            {date(
+              q.specification.resolution_timestamp ??
+                q.specification.close_timestamp,
+            )}
+            . {q.specification.sources.length} sources, locked at registration.
           </p>
         </div>
         <CriteriaSeal hash={q.criteria_hash} />
@@ -244,6 +248,26 @@ export function Docket({ initial }: { initial: Question }) {
                 <RefreshCw size={17} />
               </button>
             </div>
+            {q.docket?.candidates
+              ?.filter((c) => c.jury_status !== "verified")
+              .map((c) => (
+                <div className="juror-note" key={c.candidate_id}>
+                  Hearing candidate: {c.outcome}.{" "}
+                  {c.jury_status === "rejected"
+                    ? "Jury rejected: insufficient independently completed validators. This candidate cannot settle the market. Retry the funded round or claim its timeout refund."
+                    : "Awaiting finalized jury verification; settlement remains pending."}
+                  {c.tx_hash ? (
+                    <a
+                      href={`https://explorer-studio.genlayer.com/tx/${c.tx_hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {" "}
+                      View receipt
+                    </a>
+                  ) : null}
+                </div>
+              ))}
             {q.docket?.rounds.length ? (
               q.docket.rounds.map((r) => (
                 <article className="round-record" key={r.round}>
@@ -298,7 +322,9 @@ export function Docket({ initial }: { initial: Question }) {
                 <p>
                   {q.status === "registering"
                     ? "Registration is being processed. The factory creates the docket once the transaction finalizes."
-                    : time < q.specification.close_timestamp
+                    : time <
+                        (q.specification.resolution_timestamp ??
+                          q.specification.close_timestamp)
                       ? "The rules are sealed. Evidence will be read after the question closes."
                       : "The question has closed. A funded resolution request starts the hearing."}
                 </p>
@@ -452,7 +478,9 @@ export function Docket({ initial }: { initial: Question }) {
                 {!q.archive_reason &&
                 (pendingRehearing ||
                   (!latest &&
-                    time >= q.specification.close_timestamp &&
+                    time >=
+                      (q.specification.resolution_timestamp ??
+                        q.specification.close_timestamp) &&
                     q.escrow?.funded &&
                     (q.can_operate || openToAnyone))) ? (
                   <button
@@ -552,9 +580,9 @@ export function Docket({ initial }: { initial: Question }) {
                           wallet instead
                         </summary>
                         <p>
-                          A sponsored bond costs you nothing, so it cannot
-                          deter a repeated dispute. Send this call yourself and
-                          the stake, and any repayment, is genuinely yours.
+                          A sponsored bond costs you nothing, so it cannot deter
+                          a repeated dispute. Send this call yourself and the
+                          stake, and any repayment, is genuinely yours.
                         </p>
                         <pre>
                           {JSON.stringify(q.self_funded_challenge, null, 2)}
@@ -597,8 +625,8 @@ export function Docket({ initial }: { initial: Question }) {
                   <>
                     <p>
                       A payment of {q.payment.amount} GEN wei is awaiting your
-                      confirmation. Confirming it unblocks your next
-                      withdrawal; you do not need the relay to do it.
+                      confirmation. Confirming it unblocks your next withdrawal;
+                      you do not need the relay to do it.
                     </p>
                     <button
                       className="button secondary"

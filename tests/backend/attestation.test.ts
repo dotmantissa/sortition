@@ -39,6 +39,15 @@ function question(overrides: Partial<Question> = {}): Question {
     base_bond: "1",
     created_at: new Date().toISOString(),
     indexed_at: new Date().toISOString(),
+    panel_checks: [1, 2].map((round) => ({
+      round,
+      tx_hash: "0x" + String(round).repeat(64),
+      required: 5 + 2 * (round - 1),
+      observed: 5 + 2 * (round - 1),
+      independent_validators: 4 + 2 * (round - 1),
+      leader_only: false,
+      verified: true,
+    })),
     docket: { rounds: [{ round: 1 }, { round: 2 }] as any },
     escrow: {
       funded: true,
@@ -147,6 +156,15 @@ test("a refunded hearing is published as a final non adjudication", () => {
   const view = settlementView(
     question({
       status: "refunded",
+      panel_checks: [1, 2].map((round) => ({
+        round,
+        tx_hash: "0x" + String(round).repeat(64),
+        required: 5 + 2 * (round - 1),
+        observed: 5 + 2 * (round - 1),
+        independent_validators: 4 + 2 * (round - 1),
+        leader_only: false,
+        verified: true,
+      })),
       docket: { rounds: [] },
       escrow: {
         funded: true,
@@ -199,7 +217,7 @@ test("panel verification requires every round to meet its funded panel", () => {
   assert.equal(panelVerified([], 1), false);
   assert.equal(panelVerified(undefined, 0), null, "nothing heard yet");
 });
-test("an unverified panel is published with the settlement", () => {
+test("an unverified panel cannot produce an authoritative public settlement", () => {
   const view = settlementView(
     question({
       panel_checks: [
@@ -225,6 +243,8 @@ test("an unverified panel is published with the settlement", () => {
     }),
   );
   assert.equal(view.panel_verified, false);
+  assert.equal(view.outcome, "PENDING");
+  assert.equal(view.final, false);
   assert.equal(view.panel_checks.length, 2);
 });
 test("a final settlement is never reported as a lagging view", () => {

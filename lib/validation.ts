@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { maximumSponsoredPayment } from "./sponsor-limits";
 export const sourceSchema = z.object({
+  content_sha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   name: z.string().trim().min(1).max(120),
   url: z
     .url()
@@ -16,6 +20,11 @@ export const specificationSchema = z
     tie_break_url: z.url(),
     disagreement_rule: z.enum(["unanimous", "majority", "tie_break"]),
     close_timestamp: z.number().int().positive(),
+    observation_timestamp: z.number().int().positive().optional(),
+    resolution_timestamp: z.number().int().positive().optional(),
+    evidence_mode: z
+      .enum(["event_outcome", "historical_state"])
+      .default("event_outcome"),
     venue: z
       .object({
         name: z.string().max(100),
@@ -26,6 +35,24 @@ export const specificationSchema = z
       .optional(),
   })
   .superRefine((s, c) => {
+    const observation = s.observation_timestamp ?? s.close_timestamp;
+    const resolution = s.resolution_timestamp ?? observation;
+    if (observation < s.close_timestamp || resolution < observation)
+      c.addIssue({
+        code: "custom",
+        message:
+          "Trading close, observation and resolution times must be ordered",
+        path: ["resolution_timestamp"],
+      });
+    if (
+      s.evidence_mode === "historical_state" &&
+      s.sources.some((source) => !source.content_sha256)
+    )
+      c.addIssue({
+        code: "custom",
+        message: "Historical state requires immutable source snapshot hashes",
+        path: ["sources"],
+      });
     if (new Set(s.sources.map((x) => x.url)).size !== s.sources.length)
       c.addIssue({
         code: "custom",
@@ -38,7 +65,13 @@ export const specificationSchema = z
         message: "Choose a registered tie source",
         path: ["tie_break_url"],
       });
-  });
+  })
+  .transform((s) => ({
+    ...s,
+    observation_timestamp: s.observation_timestamp ?? s.close_timestamp,
+    resolution_timestamp:
+      s.resolution_timestamp ?? s.observation_timestamp ?? s.close_timestamp,
+  }));
 export const registrationSchema = z
   .object({
     specification: specificationSchema,

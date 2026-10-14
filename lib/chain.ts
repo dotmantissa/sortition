@@ -12,7 +12,7 @@ export const panelStep = 2;
  * The panel a round is requested with. The contract commits the same number
  * when it authorizes the funded round, so an actual receipt can be checked
  * against it. GenLayer does not expose the seated panel to contract code, so
- * this is a submission parameter plus a public check, not in-VM enforcement.
+ * the contract gates ruling publication on a separate finalized receipt audit.
  */
 export function panelSize(challengeCount: number) {
   if (
@@ -23,37 +23,68 @@ export function panelSize(challengeCount: number) {
     throw new Error("Invalid challenge round");
   return minimumPanel + panelStep * challengeCount;
 }
-/** Participants named in a public receipt: the leader plus every validator. */
-export function observedPanel(receipt: ReturnType<typeof publicReceipt>) {
-  const named = new Set<string>();
-  let anonymous = 0;
-  for (const member of [...receipt.leaders, ...receipt.validators]) {
-    const address = object(member).address;
-    if (typeof address === "string" && address) named.add(address.toLowerCase());
-    else anonymous += 1;
+/** Only the latest executing leader and completed unique voters count. */
+function panelMembers(receipt: ReturnType<typeof publicReceipt>) {
+  const leader = receipt.leaders.filter((l) => l.mode === "leader").at(-1);
+  const members = new Map<string, (typeof receipt.validators)[number]>();
+  const selfVote = receipt.leaders
+    .filter(
+      (l) =>
+        l.mode === "validator" &&
+        String(l.address).toLowerCase() ===
+          String(leader?.address).toLowerCase(),
+    )
+    .at(-1);
+  for (const member of [
+    ...(leader ? [leader] : []),
+    ...(selfVote ? [selfVote] : []),
+    ...receipt.validators,
+  ]) {
+    if (
+      typeof member.address !== "string" ||
+      !/^0x[0-9a-fA-F]{40}$/.test(member.address) ||
+      member.execution_result !== "SUCCESS" ||
+      (member.mode !== "leader" &&
+        !["agree", "disagree"].includes(String(member.vote)))
+    )
+      continue;
+    members.set(member.address.toLowerCase(), member);
   }
-  return named.size + anonymous;
+  return { members, leader };
 }
-/**
- * Compare a hearing receipt with the panel its round was funded for. Studio
- * supports leader only execution, so a hearing with no independent validator
- * is reported as unverified rather than treated as consensus.
- */
+export function observedPanel(receipt: ReturnType<typeof publicReceipt>) {
+  return panelMembers(receipt).members.size;
+}
 export function panelVerification(
   receipt: ReturnType<typeof publicReceipt>,
   required: number,
 ) {
-  const observed = observedPanel(receipt);
-  const independent = receipt.validators.length;
+  const { members, leader } = panelMembers(receipt);
+  const observed = members.size;
+  const independent = [...members].filter(
+    ([address, m]) =>
+      address !== String(leader?.address).toLowerCase() &&
+      m.mode === "validator",
+  ).length;
+  const agreeing = [...members.values()].filter(
+    (m) => m.vote === "agree",
+  ).length;
   return {
     required,
     observed,
     independent_validators: independent,
     leader_only: independent === 0,
-    verified: required > 0 && observed >= required && independent > 0,
+    agreeing,
+    verified:
+      receipt.status === "FINALIZED" &&
+      receipt.execution_success &&
+      required > 0 &&
+      observed >= required &&
+      independent > 0 &&
+      agreeing > observed / 2,
   };
 }
-export function chain(panel = 5) {
+export function chain(panel = 5, signerKey?: Address) {
   const client = createClient({
     chain: {
       ...studionet,
@@ -63,7 +94,9 @@ export function chain(panel = 5) {
       },
     },
     endpoint: process.env.GENLAYER_RPC_URL,
-    account: createAccount(env("GENLAYER_PRIVATE_KEY") as Address),
+    account: createAccount(
+      signerKey ?? (env("GENLAYER_PRIVATE_KEY") as Address),
+    ),
   });
   client.chain.defaultNumberOfInitialValidators = panel;
   return client;
@@ -223,6 +256,9 @@ export function publicReceipt(receipt: unknown) {
         : [],
     history: redactReceiptHistory(r.consensus_history),
     rotation_count: r.rotation_count,
+    appealed: r.appealed,
+    appeal_failed: r.appeal_failed,
+    appeal_undetermined: r.appeal_undetermined,
     triggered_transactions: r.triggered_transactions,
   };
 }
@@ -287,4 +323,50 @@ export async function networkClock() {
     throw new Error("Studio time is not available");
   cachedClock = { unix, local };
   return { unix, offset_seconds: unix - Math.floor(local / 1000) };
+}
+
+/** Find a direct withdrawal by its exact on-chain payment marker, never by amount alone. */
+export async function withdrawalTransaction(
+  vault: Address,
+  beneficiary: string,
+  paymentId: string,
+) {
+  const raw = await chain().request({
+    method: "sim_getTransactionsForAddress",
+    params: [vault],
+  });
+  if (!Array.isArray(raw)) return null;
+  const candidates = raw
+    .map(object)
+    .filter(
+      (r) =>
+        String(r.to_address).toLowerCase() === vault.toLowerCase() &&
+        statusName(r) === "FINALIZED" &&
+        executionSucceeded(r),
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)),
+    )
+    .slice(0, 100);
+  for (const candidate of candidates) {
+    for (const leader of publicReceipt(candidate)
+      .leaders.filter((l) => l.mode === "leader")
+      .slice(-1)) {
+      for (const line of String(leader.stdout || "").split("\n")) {
+        try {
+          const marker = object(object(JSON.parse(line)).sortition_payment);
+          if (
+            marker.id === paymentId &&
+            String(marker.beneficiary).toLowerCase() ===
+              beneficiary.toLowerCase()
+          )
+            return String(candidate.hash) as Address;
+        } catch {
+          /* A receipt without a matching marker is not this payment. */
+        }
+      }
+    }
+  }
+  return null;
 }
