@@ -35,7 +35,7 @@ class QuestionRegistry(gl.Contract):
 
     @gl.public.view
     def get_terms(self) -> dict:
-        return {'version': 4, 'relay': str(self.owner), 'vault': str(self.vault), 'appeal_window': int(self.appeal_window), 'relay_grace': int(self.relay_grace), 'hearing_timeout': int(self.hearing_timeout), 'max_rounds': int(self.max_rounds), 'docket_code_hash': hashlib.sha256(self.docket_code.encode()).hexdigest()}
+        return {'version': 5, 'relay': str(self.owner), 'vault': str(self.vault), 'appeal_window': int(self.appeal_window), 'relay_grace': int(self.relay_grace), 'hearing_timeout': int(self.hearing_timeout), 'max_rounds': int(self.max_rounds), 'docket_code_hash': hashlib.sha256(self.docket_code.encode()).hexdigest()}
 
     @gl.public.write
     def transfer_relay(self, relay: str) -> None:
@@ -79,15 +79,30 @@ class QuestionRegistry(gl.Contract):
         current = int(datetime.fromisoformat(gl.message_raw['datetime'].replace('Z', '+00:00')).timestamp())
         if not isinstance(spec.get('close_timestamp'), int) or spec['close_timestamp'] <= current:
             raise gl.vm.UserError('Closing time must be in the future')
+        # These three clocks are locked independently. Older callers explicitly
+        # inherit close as their observation/resolution time at registration.
+        spec.setdefault('observation_timestamp', spec['close_timestamp'])
+        spec.setdefault('resolution_timestamp', spec['observation_timestamp'])
+        spec.setdefault('evidence_mode', 'event_outcome')
+        observation, resolution = spec['observation_timestamp'], spec['resolution_timestamp']
+        if type(observation) is not int or type(resolution) is not int or observation < spec['close_timestamp'] or resolution < observation:
+            raise gl.vm.UserError('Trading close, observation and resolution times must be ordered')
+        if spec['evidence_mode'] not in ('event_outcome', 'historical_state'):
+            raise gl.vm.UserError('Unknown temporal evidence mode')
+        if spec['evidence_mode'] == 'historical_state':
+            for source in sources:
+                digest = source.get('content_sha256', '')
+                if not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+                    raise gl.vm.UserError('Historical state requires locked source snapshot hashes')
         if fee < 0 or base_bond <= 0 or base_bond > 10 ** 30:
             raise gl.vm.UserError('Invalid fee or bond')
         # Hash the complete canonical payload, including any operator metadata.
         canonical = json.dumps(spec, sort_keys=True, separators=(',', ':'))
         criteria_hash = hashlib.sha256(canonical.encode()).hexdigest()
         addr = gl.deploy_contract(code=self.docket_code.encode(), args=[canonical, criteria_hash, str(self.vault), question_id, int(self.appeal_window), str(self.owner), str(gl.message.contract_address), int(self.relay_grace)], salt_nonce=u256(len(self.question_ids) + 1), on='finalized')
-        self.questions[question_id] = json.dumps({'version': 4, 'id': question_id, 'docket_address': str(addr), 'criteria_hash': criteria_hash, 'specification': spec, 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'relay_grace': int(self.relay_grace), 'hearing_timeout': int(self.hearing_timeout), 'max_rounds': int(self.max_rounds)})
+        self.questions[question_id] = json.dumps({'version': 5, 'id': question_id, 'docket_address': str(addr), 'criteria_hash': criteria_hash, 'specification': spec, 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'relay_grace': int(self.relay_grace), 'hearing_timeout': int(self.hearing_timeout), 'max_rounds': int(self.max_rounds)})
         self.question_ids.append(question_id)
-        gl.get_contract_at(self.vault).emit(on='finalized').bind(question_id, str(addr), beneficiary, fee, base_bond, int(self.appeal_window), criteria_hash, int(spec['close_timestamp']), int(self.hearing_timeout), int(self.max_rounds))
+        gl.get_contract_at(self.vault).emit(on='finalized').bind(question_id, str(addr), beneficiary, fee, base_bond, int(self.appeal_window), criteria_hash, int(spec['resolution_timestamp']), int(self.hearing_timeout), int(self.max_rounds))
         return criteria_hash
 
     @gl.public.view

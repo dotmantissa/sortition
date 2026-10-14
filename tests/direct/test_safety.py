@@ -1,4 +1,4 @@
-from conftest import address, warp, deploy_docket, vault_stub, mock_hearing, HEARING_TIMEOUT, MAX_ROUNDS, APPEAL_WINDOW, QUOTE
+from conftest import install_payment_receipts, address, warp, deploy_docket, vault_stub, mock_hearing, HEARING_TIMEOUT, MAX_ROUNDS, APPEAL_WINDOW, QUOTE
 import json
 import hashlib
 import pytest
@@ -35,21 +35,22 @@ def test_failed_payment_restore_requires_backing_and_cannot_replay(vault, direct
     c.finalize('q1')
     c.withdraw(address(direct_alice))
     payment = c.get_payment(address(direct_alice))
+    install_payment_receipts(c, state, direct_vm, address(direct_alice), payment, delivered='failed_payment' not in __import__('inspect').stack()[0].function)
     assert payment['amount'] == '10' and payment['status'] == 'pending'
     direct_vm.value = 9
     with direct_vm.expect_revert('exact native backing'):
-        c.restore_withdrawal(address(direct_alice), payment['id'])
+        c.restore_withdrawal(address(direct_alice), payment['id'], '0x'+'2'*64)
     # Any account may supply the exact backing, so recovery never waits for the
     # relay to be available and funded. Credit stays fully backed either way.
     direct_vm.value = 10
     direct_vm.sender = direct_bob
-    c.restore_withdrawal(address(direct_alice), payment['id'])
+    c.restore_withdrawal(address(direct_alice), payment['id'], '0x'+'2'*64)
     assert c.get_credit(address(direct_alice)) == '10'
     restored = c.get_payment(address(direct_alice))
     assert restored['status'] == 'restored'
     assert restored['restored_by'].lower() == address(direct_bob).lower()
     with direct_vm.expect_revert('not pending'):
-        c.restore_withdrawal(address(direct_alice), payment['id'])
+        c.restore_withdrawal(address(direct_alice), payment['id'], '0x'+'2'*64)
 
 
 def test_beneficiary_can_confirm_its_own_delivered_payment(vault, direct_vm, direct_alice, direct_charlie):
@@ -62,14 +63,15 @@ def test_beneficiary_can_confirm_its_own_delivered_payment(vault, direct_vm, dir
     c.finalize('q1')
     c.withdraw(address(direct_alice))
     payment = c.get_payment(address(direct_alice))
+    install_payment_receipts(c, state, direct_vm, address(direct_alice), payment, delivered='failed_payment' not in __import__('inspect').stack()[0].function)
     with direct_vm.expect_revert('not pending'):
-        c.confirm_withdrawal(address(direct_alice), 'wrong-id')
+        c.confirm_withdrawal(address(direct_alice), 'wrong-id', '0x'+'2'*64)
     direct_vm.sender = direct_charlie
     with direct_vm.expect_revert('beneficiary or relay'):
-        c.confirm_withdrawal(address(direct_alice), payment['id'])
+        c.confirm_withdrawal(address(direct_alice), payment['id'], '0x'+'2'*64)
     # A quiet relay cannot leave a delivered payment pending forever.
     direct_vm.sender = direct_alice
-    c.confirm_withdrawal(address(direct_alice), payment['id'])
+    c.confirm_withdrawal(address(direct_alice), payment['id'], '0x'+'2'*64)
     confirmed = c.get_payment(address(direct_alice))
     assert confirmed['status'] == 'delivered'
     assert confirmed['confirmed_by'].lower() == address(direct_alice).lower()
@@ -157,14 +159,14 @@ def test_forfeited_value_leaves_the_relay_for_a_distinct_treasury(direct_vm, dir
     c.fund('q1')
     direct_vm.value = 0
     direct_vm.sender = direct_bob
-    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     direct_vm.sender = direct_alice
     direct_vm.value = 2
     # The relay sponsors a challenge against the result, and loses it.
     c.challenge('q1', address(direct_charlie), 'NO')
     direct_vm.sender = direct_bob
     direct_vm.value = 0
-    c.record_ruling('q1', 'YES', 2, 'a'*64)
+    c.record_ruling('q1', 'YES', 2, 'a'*64, '0x'+'1'*64, 7, 4)
     warp(direct_vm, '2028-01-01T00:02:00Z')
     c.finalize('q1')
     assert c.get_credit(address(direct_alice)) == '0'
@@ -183,7 +185,7 @@ def test_a_late_ruling_after_a_refund_is_accepted_quietly(vault, direct_vm, dire
     # An in flight hearing may still finalize after the refund. The emitted
     # message must not fail, and it must not reopen a closed escrow.
     direct_vm.sender = direct_bob
-    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     account = c.get_account('q1')
     assert account['outcome'] == 'REFUNDED'
     assert account['ruling_round'] == 0
@@ -223,9 +225,10 @@ def test_payment_delivery_confirmation_keeps_auditable_record(vault, direct_vm, 
     c.finalize('q1')
     c.withdraw(address(direct_alice))
     payment = c.get_payment(address(direct_alice))
+    install_payment_receipts(c, state, direct_vm, address(direct_alice), payment, delivered='failed_payment' not in __import__('inspect').stack()[0].function)
     with direct_vm.expect_revert('not pending'):
-        c.confirm_withdrawal(address(direct_alice), 'wrong-id')
-    c.confirm_withdrawal(address(direct_alice), payment['id'])
+        c.confirm_withdrawal(address(direct_alice), 'wrong-id', '0x'+'2'*64)
+    c.confirm_withdrawal(address(direct_alice), payment['id'], '0x'+'2'*64)
     assert c.get_payment(address(direct_alice))['status'] == 'delivered'
     assert c.get_credit(address(direct_alice)) == '0'
 
@@ -236,17 +239,17 @@ def test_only_registered_docket_can_publish_matching_bound_ruling(vault, direct_
     c.fund('q1')
     direct_vm.value = 0
     with direct_vm.expect_revert('registered docket'):
-        c.record_ruling('q1', 'YES', 1, 'a'*64)
+        c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert('registered docket'):
-        c.record_ruling('q1', 'YES', 1, 'b'*64)
-    c.record_ruling('q1', 'YES', 1, 'a'*64)
+        c.record_ruling('q1', 'YES', 1, 'b'*64, '0x'+'1'*64, 5, 4)
+    c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     deadline = c.get_account('q1')['round_deadline']
     warp(direct_vm, '2028-01-01T00:00:30Z')
-    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     assert c.get_account('q1')['round_deadline'] == deadline
     with direct_vm.expect_revert('new funded ruling'):
-        c.record_ruling('q1', 'NO', 2, 'a'*64)
+        c.record_ruling('q1', 'NO', 2, 'a'*64, '0x'+'1'*64, 7, 4)
 
 
 def test_a_recomputed_ruling_cannot_overwrite_a_recorded_outcome(vault, direct_vm, direct_bob):
@@ -258,10 +261,10 @@ def test_a_recomputed_ruling_cannot_overwrite_a_recorded_outcome(vault, direct_v
     c.fund('q1')
     direct_vm.value = 0
     direct_vm.sender = direct_bob
-    c.record_ruling('q1', 'YES', 1, 'a'*64)
+    c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     for outcome in ['NO', 'UNRESOLVABLE']:
         with direct_vm.expect_revert('new funded ruling'):
-            c.record_ruling('q1', outcome, 1, 'a'*64)
+            c.record_ruling('q1', outcome, 1, 'a'*64, '0x'+'1'*64, 5, 4)
     assert c.get_account('q1')['ruling_outcome'] == 'YES'
     assert c.get_account('q1')['opened_round'] == 1
 
@@ -318,7 +321,7 @@ def test_global_missing_source_exception_overrides_majority(direct_vm, direct_de
     direct_vm.mock_llm(r'(?s)Extract evidence.*', json.dumps({'position':'YES','value':'6 percent','quote':QUOTE}))
     # Matching the URL in the actual audit prompt verifies the full bundle,
     # including the unreachable source, is supplied to the exception check.
-    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*https://c.example/rate.*', json.dumps({'unsupported_urls': [], 'unresolvable': True}))
+    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*https://c.example/rate.*', json.dumps({'unsupported_urls': [], 'unresolvable': True, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}))
     c.resolve()
     assert c.get_settlement()['outcome'] == 'UNRESOLVABLE'
     assert c.get_docket()['rounds'][0]['uncertainty_applies']
@@ -347,7 +350,7 @@ def test_resolved_outcome_is_emitted_only_after_finalization(docket, direct_vm, 
     vault_stub(monkeypatch, rulings)
     mock_hearing(direct_vm)
     docket.resolve()
-    assert rulings == [('q1', 'YES', 1, docket.get_docket()['criteria_hash'])]
+    assert rulings == [('q1', 'YES', 1, docket.get_docket()['criteria_hash'], '0x'+'1'*64, 5, 4)]
 
 
 def test_hearing_repair_replays_finalized_funding_without_changing_escrow(vault, direct_vm, monkeypatch):

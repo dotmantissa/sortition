@@ -193,14 +193,14 @@ def test_bonded_rounds_are_bounded_by_the_registered_limit(direct_vm,direct_depl
         def close_settlement(self):pass
     monkeypatch.setattr(genlayer.gl,'get_contract_at',lambda a:Docket())
     direct_vm.sender=direct_bob
-    c.record_ruling('q1','YES',1,'a'*64)
+    c.record_ruling('q1', 'YES', 1, 'a'*64, '0x'+'1'*64, 5, 4)
     direct_vm.sender=direct_alice
     direct_vm.value=1
     c.challenge('q1',address(direct_alice),'NO')
     assert prepared[-1]==(1,7)
     direct_vm.sender=direct_bob
     direct_vm.value=0
-    c.record_ruling('q1','NO',2,'a'*64)
+    c.record_ruling('q1', 'NO', 2, 'a'*64, '0x'+'1'*64, 7, 4)
     direct_vm.sender=direct_alice
     direct_vm.value=2
     with direct_vm.expect_revert('Maximum bonded rounds'):

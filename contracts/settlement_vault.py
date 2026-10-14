@@ -3,6 +3,84 @@ from genlayer import *
 import json
 from datetime import datetime
 
+# BEGIN STUDIO RECEIPT PROOF
+# Embedded into the single-file contracts by scripts/sync-contract-proof.py.
+# Studio receipts are consensus-checked oracle observations from this immutable
+# network RPC, not cryptographic inclusion proofs or a production bridge.
+PROOF_RPC = 'https://studio.genlayer.com/api'
+PROOF_CHAIN_ID = 61999
+
+
+def proof_hash(value: str) -> bool:
+    return isinstance(value, str) and len(value) == 66 and value.startswith('0x') and all(c in '0123456789abcdefABCDEF' for c in value[2:])
+
+
+def rpc_transaction(tx_hash: str) -> dict:
+    if not proof_hash(tx_hash):
+        raise gl.vm.UserError('A valid transaction hash is required')
+    try:
+        response = gl.nondet.web.post(PROOF_RPC, body=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_getTransactionByHash', 'params': [tx_hash]}), headers={'Content-Type': 'application/json'})
+        if response.status != 200:
+            raise ValueError('RPC unavailable')
+        result = json.loads(response.body.decode('utf-8')).get('result')
+    except Exception:
+        raise gl.vm.UserError('[TRANSIENT] Finalized receipt unavailable')
+    if not isinstance(result, dict) or str(result.get('hash', '')).lower() != tx_hash.lower():
+        raise gl.vm.UserError('[TRANSIENT] Receipt not found')
+    if result.get('status') not in (7, 'FINALIZED'):
+        raise gl.vm.UserError('[TRANSIENT] Receipt is not finalized')
+    return result
+
+
+def receipt_leader(receipt: dict) -> dict:
+    leaders = receipt.get('consensus_data', {}).get('leader_receipt', [])
+    if isinstance(leaders, dict):
+        leaders = [leaders]
+    leaders = [l for l in leaders if l.get('mode') == 'leader']
+    if not leaders:
+        raise gl.vm.UserError('Receipt has no executing leader')
+    return leaders[-1]
+
+
+def receipt_marker(receipt: dict, key: str) -> dict:
+    leader = receipt_leader(receipt)
+    if leader.get('execution_result') != 'SUCCESS':
+        raise gl.vm.UserError('Parent execution did not succeed')
+    markers = []
+    for line in leader.get('genvm_result', {}).get('stdout', '').splitlines():
+        try:
+            parsed = json.loads(line)
+            if isinstance(parsed, dict) and isinstance(parsed.get(key), dict):
+                markers.append(parsed[key])
+        except Exception:
+            pass
+    if len(markers) != 1:
+        raise gl.vm.UserError('Receipt is not bound to this operation')
+    return markers[0]
+
+
+def receipt_panel(receipt: dict, required: int) -> dict:
+    leader = receipt_leader(receipt)
+    members = [leader] + receipt.get('consensus_data', {}).get('validators', [])
+    addresses = set()
+    agreeing = set()
+    independent = set()
+    leader_address = str(leader.get('node_config', {}).get('address', '')).lower()
+    for member in members:
+        address = str(member.get('node_config', {}).get('address', '')).lower()
+        if len(address) != 42 or not address.startswith('0x') or member.get('execution_result') != 'SUCCESS' or member.get('vote') not in ('agree', 'disagree'):
+            continue
+        addresses.add(address)
+        if member.get('vote') == 'agree':
+            agreeing.add(address)
+        if address != leader_address and member.get('mode') == 'validator':
+            independent.add(address)
+    observed = len(addresses)
+    verified = observed >= required and len(independent) > 0 and len(agreeing) > observed // 2
+    return {'required': required, 'observed': observed, 'independent_validators': len(independent), 'agreeing': len(agreeing), 'verified': verified}
+# END STUDIO RECEIPT PROOF
+
+
 MINIMUM_PANEL = 5
 PANEL_STEP = 2
 
@@ -50,7 +128,7 @@ class SettlementVault(gl.Contract):
 
     @gl.public.view
     def get_configuration(self) -> dict:
-        return {'version': 4, 'relay': str(self.owner), 'treasury': str(self.treasury), 'registry': str(self.registry) if self.configured else '', 'configured': self.configured, 'minimum_panel': MINIMUM_PANEL, 'panel_step': PANEL_STEP}
+        return {'version': 5, 'relay': str(self.owner), 'treasury': str(self.treasury), 'registry': str(self.registry) if self.configured else '', 'configured': self.configured, 'minimum_panel': MINIMUM_PANEL, 'panel_step': PANEL_STEP}
 
     @gl.public.write
     def transfer_relay(self, relay: str) -> None:
@@ -69,7 +147,7 @@ class SettlementVault(gl.Contract):
             raise gl.vm.UserError('Invalid escrow terms')
         if close_timestamp <= 0 or not 300 <= hearing_timeout <= 2592000 or not 1 <= max_rounds <= 8:
             raise gl.vm.UserError('Invalid hearing deadline terms')
-        account = {'version': 4, 'docket': str(Address(docket)), 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'funded': fee == 0, 'settled': False, 'refunded': False, 'challenge_count': 0, 'opened_round': 0, 'round_deadline': 0, 'appeal_window': appeal_window, 'criteria_hash': criteria_hash, 'ruling_round': 0, 'ruling_outcome': 'PENDING', 'challenges': [], 'outcome': 'PENDING', 'fee_payer': '', 'close_timestamp': close_timestamp, 'hearing_timeout': hearing_timeout, 'max_rounds': max_rounds, 'hearing_deadline': 0, 'required_validators': panel_for(0)}
+        account = {'version': 5, 'docket': str(Address(docket)), 'beneficiary': str(Address(beneficiary)), 'fee': str(fee), 'base_bond': str(base_bond), 'funded': fee == 0, 'settled': False, 'refunded': False, 'challenge_count': 0, 'opened_round': 0, 'round_deadline': 0, 'appeal_window': appeal_window, 'criteria_hash': criteria_hash, 'ruling_round': 0, 'ruling_outcome': 'PENDING', 'challenges': [], 'outcome': 'PENDING', 'fee_payer': '', 'close_timestamp': close_timestamp, 'hearing_timeout': hearing_timeout, 'max_rounds': max_rounds, 'hearing_deadline': 0, 'required_validators': panel_for(0)}
         if fee == 0:
             # Every funded hearing carries a deadline from the moment it becomes
             # payable, so locked value always has a bounded exit.
@@ -105,10 +183,12 @@ class SettlementVault(gl.Contract):
         gl.get_contract_at(Address(a['docket'])).emit(on='finalized').prepare_round(a['challenge_count'], panel_for(a['challenge_count']))
 
     @gl.public.write
-    def record_ruling(self, question_id: str, outcome: str, round_number: int, criteria_hash: str) -> None:
+    def record_ruling(self, question_id: str, outcome: str, round_number: int, criteria_hash: str, hearing_tx: str, observed: int, independent: int) -> None:
         a = self.get_account(question_id)
         if gl.message.sender_address != Address(a['docket']) or criteria_hash != a['criteria_hash']:
             raise gl.vm.UserError('Only the registered docket can publish its finalized ruling')
+        if not proof_hash(hearing_tx) or observed < int(a['required_validators']) or independent < 1:
+            raise gl.vm.UserError('A verified required jury is mandatory')
         if outcome not in ('YES', 'NO', 'UNRESOLVABLE'):
             raise gl.vm.UserError('Invalid outcome')
         # A refunded hearing is closed. Accept a late in flight ruling quietly
@@ -120,7 +200,7 @@ class SettlementVault(gl.Contract):
         if a['settled'] or not a['funded'] or round_number != a['challenge_count'] + 1 or round_number <= a['ruling_round']:
             raise gl.vm.UserError('A new funded ruling is required')
         timestamp = now()
-        a.update(ruling_round=round_number, ruling_outcome=outcome, opened_round=round_number, round_deadline=timestamp + a['appeal_window'], hearing_deadline=0)
+        a.update(hearing_tx=hearing_tx, panel_verified=True, observed_validators=observed, independent_validators=independent, ruling_round=round_number, ruling_outcome=outcome, opened_round=round_number, round_deadline=timestamp + a['appeal_window'], hearing_deadline=0)
         self.accounts[question_id] = json.dumps(a)
 
     @gl.public.write.payable
@@ -214,6 +294,7 @@ class SettlementVault(gl.Contract):
         self.credits[addr] = u256(0)
         # An EOA has no GenVM code. Empty EVM calldata emits a native transfer.
         NativeRecipient(addr).emit_transfer(value=amount)
+        print(json.dumps({'sortition_payment': {'id': str(self.payment_sequence), 'beneficiary': str(addr), 'amount': str(amount)}}))
 
     @gl.public.view
     def get_credit(self, beneficiary: str) -> str:
@@ -224,7 +305,7 @@ class SettlementVault(gl.Contract):
         return json.loads(self.payments.get(Address(beneficiary), '{}'))
 
     @gl.public.write
-    def confirm_withdrawal(self, beneficiary: str, payment_id: str) -> None:
+    def confirm_withdrawal(self, beneficiary: str, payment_id: str, withdrawal_tx: str) -> None:
         # The beneficiary can accept delivery of their own payment, so a quiet
         # relay cannot leave a delivered payment pending forever. Only the
         # recipient of the value can give this up.
@@ -234,12 +315,16 @@ class SettlementVault(gl.Contract):
         p = self.get_payment(beneficiary)
         if p.get('id') != payment_id or p.get('status') != 'pending':
             raise gl.vm.UserError('Payment is not pending')
+        proof = self.payment_proof(beneficiary, p, withdrawal_tx)
+        if not proof['delivered']:
+            raise gl.vm.UserError('Native transfer did not execute successfully')
+        p.update(withdrawal_tx=withdrawal_tx, transfer_tx=proof['transfer_tx'])
         p['status'] = 'delivered'
         p['confirmed_by'] = str(gl.message.sender_address)
         self.payments[addr] = json.dumps(p)
 
     @gl.public.write.payable
-    def restore_withdrawal(self, beneficiary: str, payment_id: str) -> None:
+    def restore_withdrawal(self, beneficiary: str, payment_id: str, withdrawal_tx: str) -> None:
         # A failed external payment does not return its value automatically, so
         # restored credit must arrive with exact native backing. Any account may
         # supply it, including the beneficiary, so recovery never waits for the
@@ -248,6 +333,10 @@ class SettlementVault(gl.Contract):
         p = self.get_payment(beneficiary)
         if p.get('id') != payment_id or p.get('status') != 'pending':
             raise gl.vm.UserError('Payment is not pending')
+        proof = self.payment_proof(beneficiary, p, withdrawal_tx)
+        if proof['delivered']:
+            raise gl.vm.UserError('A delivered payment cannot be restored')
+        p.update(withdrawal_tx=withdrawal_tx, transfer_tx=proof['transfer_tx'])
         amount = int(p['amount'])
         if int(gl.message.value) != amount:
             raise gl.vm.UserError('Restoration requires exact native backing')
@@ -255,3 +344,23 @@ class SettlementVault(gl.Contract):
         p['status'] = 'restored'
         p['restored_by'] = str(gl.message.sender_address)
         self.payments[addr] = json.dumps(p)
+
+    def payment_proof(self, beneficiary: str, payment: dict, withdrawal_tx: str) -> dict:
+        address = str(gl.message.contract_address).lower()
+        expected = {'id': payment['id'], 'beneficiary': str(Address(beneficiary)), 'amount': payment['amount']}
+        def verify():
+            parent = rpc_transaction(withdrawal_tx)
+            if str(parent.get('to_address', '')).lower() != address or receipt_marker(parent, 'sortition_payment') != expected:
+                raise gl.vm.UserError('Withdrawal receipt does not match this payment')
+            children = parent.get('triggered_transactions', [])
+            if not isinstance(children, list) or len(children) != 1:
+                raise gl.vm.UserError('[TRANSIENT] Exactly one finalized native transfer is required')
+            child = rpc_transaction(children[0])
+            if str(child.get('from_address', '')).lower() != address or str(child.get('to_address', '')).lower() != beneficiary.lower() or int(child.get('value', -1)) != int(payment['amount']) or child.get('type') not in (0, '0x0', 'SEND') or str(child.get('triggered_by', '')).lower() != withdrawal_tx.lower():
+                raise gl.vm.UserError('Native transfer is not bound to this payment')
+            # Studio records the actual ledger effect, not just parent success.
+            credited = child.get('value_credited')
+            if type(credited) is not bool:
+                raise gl.vm.UserError('[TRANSIENT] Transfer execution proof is missing')
+            return {'transfer_tx': children[0], 'delivered': credited}
+        return dict(gl.eq_principle.strict_eq(verify))

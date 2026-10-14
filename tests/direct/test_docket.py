@@ -17,7 +17,7 @@ def test_resolve_reads_all_sources(docket, direct_vm):
 def test_absent_document_is_a_real_outcome(docket, direct_vm):
     # A 404 is a repeatable statement that the document is not there.
     direct_vm.mock_web('.*', {'status': 404, 'body': ''})
-    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'unresolvable': False}))
+    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'unresolvable': False, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}))
     docket.resolve()
     assert docket.get_settlement()['outcome'] == 'UNRESOLVABLE'
     sources = docket.get_docket()['rounds'][0]['sources']
@@ -74,7 +74,8 @@ def test_oversized_document_still_reaches_the_fact(docket, direct_vm):
     docket.resolve()
     sources = docket.get_docket()['rounds'][0]['sources']
     assert all(s['document_is_partial'] and s['document_characters'] == len(body) for s in sources)
-    assert all(QUOTE in s['excerpt'] for s in sources)
+    assert all(s['position'] == 'UNKNOWN' and s['evidence_reason'] == 'incomplete_document' for s in sources)
+    assert docket.get_settlement()['outcome'] == 'UNRESOLVABLE'
 
 @pytest.mark.parametrize('quote,message', [
     (None, 'supporting quotation'),
@@ -97,12 +98,12 @@ def test_quotation_that_does_not_support_the_value_is_rejected(docket, direct_vm
 def test_bad_model_response_reverts(docket, direct_vm, reply):
     direct_vm.mock_web('.*', {'status': 200, 'body': BODY})
     direct_vm.mock_llm(r'(?s)Extract evidence.*', json.dumps(reply) if isinstance(reply, dict) else reply)
-    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'unresolvable': False}))
+    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'unresolvable': False, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}))
     with direct_vm.expect_revert('LLM_ERROR'):
         docket.resolve()
     assert docket.get_settlement()['outcome'] == 'PENDING'
 
-@pytest.mark.parametrize('reply', [{'unresolvable': 'maybe'}, {'unsupported_urls': 'all', 'unresolvable': True}, 'not json'])
+@pytest.mark.parametrize('reply', [{'unresolvable': 'maybe'}, {'unsupported_urls': 'all', 'unresolvable': True, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}, 'not json'])
 def test_bad_audit_response_reverts(docket, direct_vm, reply):
     direct_vm.mock_web('.*', {'status': 200, 'body': BODY})
     direct_vm.mock_llm(r'(?s)Extract evidence.*', json.dumps({'position': 'YES', 'value': '6 percent', 'quote': QUOTE}))
@@ -123,7 +124,7 @@ def test_both_model_stages_receive_the_close_and_the_real_document(docket, direc
     direct_vm.mock_llm(r'(?s)Extract evidence.*"closing_timestamp": 1800000000.*"document": "Official release\. The final rate',
                        json.dumps({'position': 'YES', 'value': '6 percent', 'quote': QUOTE}))
     direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*"closing_timestamp": 1800000000.*"quotation": "The final rate is 6 percent".*"document_context_around_quotation": "Official release\. The final rate is 6 percent at the close of business\."',
-                       json.dumps({'unsupported_urls': [], 'unresolvable': False}))
+                       json.dumps({'unsupported_urls': [], 'unresolvable': False, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}))
     docket.resolve()
     assert docket.get_docket()['rounds'][0]['closing_timestamp'] == 1800000000
     assert docket.get_settlement()['outcome'] == 'YES'
@@ -191,7 +192,7 @@ def test_registered_disagreement_policies(direct_vm,direct_deploy,direct_alice,s
     c = deploy_docket(direct_deploy, spec, address(direct_alice), address(direct_alice), address(direct_alice), question_id='q')
     c.prepare_round(0, 5)
     vault_stub(monkeypatch)
-    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'unresolvable': False}))
+    direct_vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': [], 'unresolvable': False, 'temporal_supported_urls': [s['url'] for s in spec['sources']]}))
     for source,position in zip(spec['sources'],positions):
         direct_vm.mock_web(source['url'],{'status':200,'body':BODY})
         reply = {'position':position,'value':'6 percent' if position != 'UNKNOWN' else ''}
@@ -239,7 +240,7 @@ def test_any_account_may_request_a_hearing_after_the_relay_grace_period(direct_v
 
 def test_relay_keeps_a_head_start_before_the_grace_period_expires(direct_vm, direct_deploy, direct_alice, direct_bob, spec, monkeypatch):
     direct_vm.sender = direct_alice
-    spec['close_timestamp'] = 1830297600
+    spec.update(close_timestamp=1830297600, observation_timestamp=1830297600, resolution_timestamp=1830297600)
     warp(direct_vm, '2028-01-01T00:00:00Z')
     c = deploy_docket(direct_deploy, spec, address(direct_alice), address(direct_alice), address(direct_alice))
     c.prepare_round(0, 5)
@@ -254,7 +255,7 @@ def test_relay_keeps_a_head_start_before_the_grace_period_expires(direct_vm, dir
 
 def test_registry_can_rotate_a_lost_relay_key(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie, spec, monkeypatch):
     direct_vm.sender = direct_alice
-    spec['close_timestamp'] = 1830297600
+    spec.update(close_timestamp=1830297600, observation_timestamp=1830297600, resolution_timestamp=1830297600)
     warp(direct_vm, '2028-01-01T00:00:00Z')
     # A distinct registry address proves the rotation is authenticated.
     c = deploy_docket(direct_deploy, spec, address(direct_alice), address(direct_alice), address(direct_charlie))
@@ -283,7 +284,7 @@ def test_anyone_can_republish_an_immutable_stored_ruling(docket, direct_vm, dire
     docket.resolve()
     direct_vm.sender = direct_bob
     docket.publish_ruling()
-    assert rulings[-1] == ('q1', 'YES', 1, docket.get_docket()['criteria_hash'])
+    assert rulings[-1] == ('q1', 'YES', 1, docket.get_docket()['criteria_hash'], '0x'+'1'*64, 5, 4)
 
 def test_rehearing_carries_the_first_hearing_record_and_flags_a_changed_source(docket, direct_vm):
     mock_hearing(direct_vm)

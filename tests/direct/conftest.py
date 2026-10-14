@@ -38,12 +38,13 @@ QUOTE = 'The final rate is 6 percent'
 
 @pytest.fixture
 def spec():
-    return {'question': 'Did the published rate exceed five percent?', 'criteria': 'YES if the official rate is above 5 percent. Otherwise NO.', 'unresolvable_definition': 'No final official release or missing numeric rate.', 'sources': [{'name': 'Official A', 'url': 'https://a.example/rate'}, {'name': 'Official B', 'url': 'https://b.example/rate'}], 'tie_break_url': 'https://a.example/rate', 'disagreement_rule': 'unanimous', 'close_timestamp': 1800000000}
+    return {'question': 'Did the published rate exceed five percent?', 'criteria': 'YES if the official rate is above 5 percent. Otherwise NO.', 'unresolvable_definition': 'No final official release or missing numeric rate.', 'sources': [{'name': 'Official A', 'url': 'https://a.example/rate'}, {'name': 'Official B', 'url': 'https://b.example/rate'}], 'tie_break_url': 'https://a.example/rate', 'disagreement_rule': 'unanimous', 'close_timestamp': 1800000000, 'observation_timestamp': 1800000000, 'resolution_timestamp': 1800000000, 'evidence_mode': 'event_outcome'}
 
 
 def deploy_docket(direct_deploy, spec, vault, relay, registry, question_id='q1', grace=RELAY_GRACE):
     canonical = json.dumps(spec, sort_keys=True, separators=(',', ':'))
-    return direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), vault, question_id, APPEAL_WINDOW, relay, registry, grace)
+    c = direct_deploy('contracts/sortition_docket.py', canonical, hashlib.sha256(canonical.encode()).hexdigest(), vault, question_id, APPEAL_WINDOW, relay, registry, grace)
+    return VerifiedDocketHarness(c)
 
 
 def vault_stub(monkeypatch, rulings=None):
@@ -109,6 +110,7 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
     class Recipient:
         def __init__(self, addr): state['recipient'] = str(addr)
         def emit_transfer(self, **kw): state['transfer'] = kw
+    state['monkeypatch'] = monkeypatch
     state['contract_module'] = sys.modules[c.__class__.__module__]
     state['recipient_interface'] = state['contract_module'].NativeRecipient
     monkeypatch.setattr(sys.modules[c.__class__.__module__], 'NativeRecipient', Recipient)
@@ -118,7 +120,7 @@ def vault(direct_vm, direct_deploy, direct_alice, direct_bob, monkeypatch):
             # Deliver the real public callback with the authenticated docket sender.
             sender, value = direct_vm.sender, direct_vm.value
             direct_vm.sender, direct_vm.value = direct_bob, 0
-            try: c.record_ruling(key, state['outcome'], state['round'], 'a'*64)
+            try: c.record_ruling(key, state['outcome'], state['round'], 'a'*64, '0x'+'1'*64, 5+2*(state['round']-1), 4+2*(state['round']-1))
             finally: direct_vm.sender, direct_vm.value = sender, value
     return FinalizedMessageHarness(), state
 
@@ -141,4 +143,54 @@ def mock_hearing(vm, position='YES', value='6 percent', quote: str | None = QUOT
     if quote is not None:
         reply['quote'] = quote
     vm.mock_llm(r'(?s)Extract evidence.*', json.dumps(reply))
-    vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': unsupported or [], 'unresolvable': unresolvable}))
+    vm.mock_llm(r'(?s)auditing a locked prediction hearing.*', json.dumps({'unsupported_urls': unsupported or [], 'unresolvable': unresolvable, 'temporal_supported_urls': ['https://a.example/rate', 'https://b.example/rate']}))
+
+
+# Extraction tests use this helper to promote their candidate with a locally
+# constructed finalized panel receipt. Dedicated review tests exercise raw
+# proposals and the RPC proof boundary, without this helper.
+class VerifiedDocketHarness:
+    def __init__(self, contract): self.contract = contract
+    def __getattr__(self, name): return getattr(self.contract, name)
+    def propose(self): return self.contract.resolve()
+    def resolve(self):
+        import sys
+        self.contract.resolve()
+        module = sys.modules[self.contract.__class__.__module__]
+        raw = module.rpc_transaction
+        candidate = self.contract.get_docket()['candidates'][-1]
+        from genlayer import gl
+        candidate['criteria_hash'] = self.contract.get_docket()['criteria_hash']
+        receipt = hearing_receipt(str(gl.message.contract_address), candidate, candidate['required_validators'])
+        module.rpc_transaction = lambda h: receipt
+        vm = _current_vm
+        count = len(vm._captured_validators)
+        try: self.contract.verify_hearing(candidate['candidate_id'], '0x'+'1'*64)
+        finally:
+            module.rpc_transaction = raw
+            del vm._captured_validators[count:]
+
+
+def hearing_receipt(address, candidate, panel=5):
+    marker = {'candidate_id': candidate['candidate_id'], 'round': candidate['round'], 'criteria_hash': candidate.get('criteria_hash', '')}
+    # criteria_hash is supplied by caller for real proof tests.
+    from genlayer import gl
+    marker['criteria_hash'] = candidate.get('criteria_hash') or ''
+    members = [{'node_config': {'address': '0x'+format(i+1,'040x')}, 'mode': 'leader' if i == 0 else 'validator', 'vote': 'agree', 'execution_result': 'SUCCESS', 'genvm_result': {'stdout': json.dumps({'sortition_candidate': marker}) if i == 0 else ''}} for i in range(panel)]
+    return {'hash': '0x'+'1'*64, 'status': 7, 'to_address': address, 'consensus_data': {'leader_receipt': members[:1], 'validators': members[1:]}}
+
+
+@pytest.fixture(autouse=True)
+def current_vm(direct_vm):
+    global _current_vm
+    _current_vm = direct_vm
+
+
+def install_payment_receipts(c, state, vm, beneficiary, payment, delivered=True):
+    from genlayer import gl
+    vault = str(gl.message.contract_address)
+    parent_hash, child_hash = '0x'+'2'*64, '0x'+'3'*64
+    parent = {'hash': parent_hash, 'status': 7, 'to_address': vault, 'triggered_transactions': [child_hash], 'consensus_data': {'leader_receipt': [{'mode': 'leader', 'execution_result': 'SUCCESS', 'genvm_result': {'stdout': json.dumps({'sortition_payment': {'id': payment['id'], 'amount': payment['amount'], 'beneficiary': str(__import__('genlayer').Address(beneficiary))}})}}]}}
+    child = {'hash': child_hash, 'status': 7, 'from_address': vault, 'to_address': beneficiary, 'value': payment['amount'], 'type': 0, 'triggered_by': parent_hash, 'value_credited': delivered}
+    state['monkeypatch'].setattr(state['contract_module'], 'rpc_transaction', lambda h: parent if h == parent_hash else child)
+    return parent, child
