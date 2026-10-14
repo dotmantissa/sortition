@@ -1,0 +1,25 @@
+{
+  "url": "https://sortition.vercel.app",
+  "deployment_id": "dpl_5vZRks7jrD2r4Xh59sE9GxeiQJpg",
+  "state": "READY",
+  "application_commit": "705f6dca2355e3cbb7afb333efe645b27a28c423",
+  "verified_at": "2026-10-12T09:23:52.167Z",
+  "verification_clock": "Neon database UTC",
+  "worker": "Persistent systemd user service with an authenticated scheduled backup",
+  "checks": {
+    "contract_tests": 65,
+    "backend_and_react_tests": 51,
+    "production_browser_tests": 3,
+    "contract_lints": true,
+    "application_lint": true,
+    "typecheck": true,
+    "production_build": true,
+    "signed_consumer": true,
+    "native_delivery": true
+  },
+  "limitations": [
+    "Native protocol appeals paused after the recorded Studio rollback failure",
+    "Real email inbox OTP verification was not performed",
+    "Unpatched braces advisory is confined to fixed development lint globs"
+  ]
+}

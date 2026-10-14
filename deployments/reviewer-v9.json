@@ -37720,7 +37720,7 @@
       "attestation_verified": true,
       "signature_delivery": {
         "accepted": true,
-        "duplicate": false,
+        "duplicate": true,
         "action": "pay_yes"
       },
       "replay": {
@@ -37748,7 +37748,7 @@
       "attestation_verified": true,
       "signature_delivery": {
         "accepted": true,
-        "duplicate": false,
+        "duplicate": true,
         "action": "refund"
       },
       "replay": {
@@ -37776,7 +37776,7 @@
       "attestation_verified": true,
       "signature_delivery": {
         "accepted": true,
-        "duplicate": false,
+        "duplicate": true,
         "action": "refund"
       },
       "replay": {
@@ -37804,7 +37804,7 @@
       "attestation_verified": true,
       "signature_delivery": {
         "accepted": true,
-        "duplicate": false,
+        "duplicate": true,
         "action": "refund"
       },
       "replay": {
@@ -37832,7 +37832,7 @@
       "attestation_verified": true,
       "signature_delivery": {
         "accepted": true,
-        "duplicate": false,
+        "duplicate": true,
         "action": "refund"
       },
       "replay": {

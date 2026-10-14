@@ -1,25 +1,25 @@
 {
   "url": "https://sortition.vercel.app",
-  "deployment_id": "dpl_5vZRks7jrD2r4Xh59sE9GxeiQJpg",
+  "deployment_id": "dpl_FVhxEK4zjs2CGXk2XGygBsk3beom",
+  "deployment_url": "https://sortition-j0yjpukjb-mantissas-projects.vercel.app",
   "state": "READY",
-  "application_commit": "705f6dca2355e3cbb7afb333efe645b27a28c423",
-  "verified_at": "2026-10-12T09:23:52.167Z",
-  "verification_clock": "Neon database UTC",
-  "worker": "Persistent systemd user service with an authenticated scheduled backup",
-  "checks": {
-    "contract_tests": 65,
-    "backend_and_react_tests": 51,
-    "production_browser_tests": 3,
-    "contract_lints": true,
-    "application_lint": true,
-    "typecheck": true,
-    "production_build": true,
-    "signed_consumer": true,
-    "native_delivery": true
-  },
+  "application_commit": "719f7b8",
+  "verified_at": "2026-10-14T11:07:42Z",
+  "worker": "sortition-worker.service active",
+  "checks": [
+    "126 direct contract tests",
+    "97 backend/React tests",
+    "3 production browser checks on final release",
+    "3 GenVM lints, ESLint, TypeScript, production build",
+    "Exact deployed registry/vault/factory source parity",
+    "Five finalized review cases and 16 wei native delivery",
+    "Five pinned signed reference decisions, duplicate handling and tamper rejection"
+  ],
+  "evidence": "deployments/reviewer-v9.json",
   "limitations": [
-    "Native protocol appeals paused after the recorded Studio rollback failure",
-    "Real email inbox OTP verification was not performed",
-    "Unpatched braces advisory is confined to fixed development lint globs"
+    "Studio test GEN; fixed official RPC receipt oracle, not a cryptographic bridge",
+    "Synthetic web fixtures, not real sports outcomes or venue position payouts",
+    "Earlier failed native appeal retained; new late submission has no completed appeal-validation proof",
+    "Failed SEND recovery behaviorally tested; actual live SEND succeeded"
   ]
 }
