@@ -62,14 +62,19 @@ def receipt_marker(receipt: dict, key: str) -> dict:
 
 def receipt_panel(receipt: dict, required: int) -> dict:
     leader = receipt_leader(receipt)
-    members = [leader] + receipt.get('consensus_data', {}).get('validators', [])
+    leaders = receipt.get('consensus_data', {}).get('leader_receipt', [])
+    if isinstance(leaders, dict):
+        leaders = [leaders]
+    leader_address = str(leader.get('node_config', {}).get('address', '')).lower()
+    self_votes = [m for m in leaders if m.get('mode') == 'validator' and str(m.get('node_config', {}).get('address', '')).lower() == leader_address]
+    members = [leader] + self_votes[-1:] + receipt.get('consensus_data', {}).get('validators', [])
     addresses = set()
     agreeing = set()
     independent = set()
     leader_address = str(leader.get('node_config', {}).get('address', '')).lower()
     for member in members:
         address = str(member.get('node_config', {}).get('address', '')).lower()
-        if len(address) != 42 or not address.startswith('0x') or member.get('execution_result') != 'SUCCESS' or member.get('vote') not in ('agree', 'disagree'):
+        if len(address) != 42 or not address.startswith('0x') or member.get('execution_result') != 'SUCCESS' or (member.get('mode') != 'leader' and member.get('vote') not in ('agree', 'disagree')):
             continue
         addresses.add(address)
         if member.get('vote') == 'agree':
@@ -441,6 +446,8 @@ class SortitionDocket(gl.Contract):
             unsupported = audit.get('unsupported_urls', [])
             if not isinstance(unsupported, list) or type(audit.get('unresolvable')) is not bool:
                 raise gl.vm.UserError(ERROR_LLM + ' The audit requires an unsupported url list and a boolean')
+            if any(not isinstance(u, str) or u not in {r['url'] for r in readings} for u in unsupported):
+                raise gl.vm.UserError(ERROR_LLM + ' Invalid audit source identity')
             named = sorted({str(u) for u in unsupported} & {r['url'] for r in readings if r['position'] != 'UNKNOWN'})
             if named:
                 # An unsupported quotation means the extraction was wrong, not
