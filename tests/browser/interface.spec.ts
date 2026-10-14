@@ -14,7 +14,9 @@ test("public record, email access and theme remain usable on desktop and mobile"
     fullPage: true,
   });
   const toggle = page.getByRole("button", { name: "Use dark mode" });
-  if (await toggle.count()) await toggle.click();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeEnabled();
+  await expect(toggle).toBeVisible();
+  await toggle.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

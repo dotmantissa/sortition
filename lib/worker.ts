@@ -110,7 +110,7 @@ function settlementEvent(
 async function updateQuestion(id: string) {
   const sql = db();
   const configured =
-    await sql`SELECT registry_address,vault_address,owner_id,panel_checks FROM questions WHERE id=${id}`;
+    await sql`SELECT registry_address,vault_address,owner_id,panel_checks,docket FROM questions WHERE id=${id}`;
   const a = {
     registry: configured[0].registry_address as Address,
     vault: configured[0].vault_address as Address,
@@ -118,8 +118,18 @@ async function updateQuestion(id: string) {
   const registered = object(await readFinal(a.registry, "get_question", [id]));
   const docketAddress = registered.docket_address as Address;
   if (!docketAddress) return;
-  const docket = object(await readFinal(docketAddress, "get_docket"));
   const escrow = object(await readFinal(a.vault, "get_account", [id]));
+  let docket: Record<string, unknown>;
+  try {
+    docket = object(await readFinal(docketAddress, "get_docket"));
+  } catch {
+    // A failed native rollback can remove a docket. Custody recovery is still
+    // final and authoritative in the surviving vault, even when its closure
+    // notification cannot execute. Never hide that refund behind a view error.
+    if (escrow.settled !== true || escrow.refunded !== true)
+      throw Error("Docket state unavailable");
+    docket = { ...object(configured[0].docket), unavailable: true };
+  }
   const spec = registered.specification as Specification;
   const rounds = Array.isArray(docket.rounds) ? docket.rounds : [];
   const now = (await networkClock()).unix;
@@ -601,7 +611,14 @@ async function poll(job: Job) {
       return;
     }
     if (status === "FINALIZED") {
-      const childState = childExecutionState(childReceipts);
+      let childState = childExecutionState(childReceipts);
+      if (childState === "failed" && job.kind === "claim_timeout") {
+        const refunded = object(
+          await readFinal(job.vault_address, "get_account", [job.question_id]),
+        );
+        if (refunded.settled === true && refunded.refunded === true)
+          childState = "complete";
+      }
       if (childState === "failed") {
         if (job.kind === "withdraw") await reconcilePayment(job, true);
         await db()`UPDATE operations SET status='failed',error='An emitted transaction failed. Retry the funded hearing or window without paying again. Pending native payments receive backed recovery.',updated_at=now() WHERE id=${job.id}`;

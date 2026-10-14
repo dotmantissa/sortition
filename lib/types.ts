@@ -94,6 +94,7 @@ export type Question = {
   } | null;
   docket?: {
     version?: number;
+    unavailable?: boolean;
     candidates?: Round[];
     rounds: Round[];
     required_validators?: number;

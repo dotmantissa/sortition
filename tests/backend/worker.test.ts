@@ -29,6 +29,8 @@ function harness(
     badIndex?: boolean;
     proofGate?: boolean;
     proofFound?: boolean;
+    missingDocket?: boolean;
+    refunded?: boolean;
     childFailed?: boolean;
     unopened?: boolean;
     expiredLease?: boolean;
@@ -260,6 +262,8 @@ function harness(
           criteria_hash: "hash",
           specification: { close_timestamp: 0 },
         };
+      if (method === "get_docket" && options.missingDocket)
+        throw Error("docket removed by native rollback");
       if (method === "get_docket")
         return {
           version: options.proofGate ? 5 : 3,
@@ -285,7 +289,7 @@ function harness(
               : 2,
         funded: true,
         settled: options.settled === true,
-        refunded: false,
+        refunded: options.refunded === true,
         outcome: options.settled ? "YES" : "PENDING",
         final_round: 2,
         beneficiary: PAYERS.beneficiary,
@@ -818,4 +822,25 @@ test("an unverified settled index cannot emit an authoritative webhook", async (
   const h = harness({ proofGate: true, settled: true });
   await h.exports.workerUnderTest.updateQuestion("first");
   assert.ok(!h.calls.some((c) => c.query.startsWith("INSERT INTO deliveries")));
+});
+
+test("a native rollback cannot hide a finalized vault refund or fail its operation on a missing docket callback", async () => {
+  const h = harness({
+    missingDocket: true,
+    settled: true,
+    refunded: true,
+    childFailed: true,
+  });
+  const job = h.job("claim_timeout");
+  h.jobs.push(job);
+  await h.exports.workerUnderTest.poll(job);
+  assert.equal(job.status, "complete");
+  const indexed = h.calls.find((c) =>
+    c.query.startsWith("UPDATE questions SET criteria_hash"),
+  );
+  assert.equal(JSON.parse(indexed!.values[2]).unavailable, true);
+  assert.ok(
+    h.calls.some((c) => c.query.startsWith("INSERT INTO deliveries")),
+    "the final non-adjudication refund still publishes",
+  );
 });
